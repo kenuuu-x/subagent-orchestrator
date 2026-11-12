@@ -14,7 +14,8 @@ model and effort by the task's complexity class.
   `implementation`, `review fixes`, `publish`, `PR comments`, `merge base`,
   `merge`.
 - For `review fixes`: the path of `review-N.md` and/or `visual-N.md` to fix,
-  and with no code host the path of `remarks-N.md` (the human's remarks).
+  and with no code host the path of `remarks-N.md` (the human's remarks), and
+  each `custom-<name>-N.md` that holds a `REQUEST CHANGES`.
 - For `publish`, `PR comments` and `merge`: the absolute path of
   `skills/pull-request/SKILL.md` under the plugin root, and the absolute path of
   the code-host adapter (a `host-*.md` file under
@@ -42,7 +43,7 @@ is checked out, or in this worktree switched to the base and back).
 
 Rebuild the picture from documents, not memory: `state.md`, every
 `changes-*.md` (especially "Decisions and reasons"), the latest `review-N.md`
-or `visual-N.md` named in the brief, and `git status` plus `git diff` of the
+or `visual-N.md` (or `custom-<name>-N.md`) named in the brief, and `git status` plus `git diff` of the
 worktree. Do not redo earlier decisions without a reason from the review.
 
 ## Rules
@@ -92,13 +93,13 @@ conflicted files and how you resolved them in `changes-N.md`.
 **merge**: only after the human asked for it. Read the pull-request skill and
 the code-host adapter and follow the skill's merge section: checks green,
 approval present, the adapter's merge command with the repository's merge
-method (none named: do not pick one, stop and report), then report. With no
-code host, the adapter is host-none: merge the task
-branch into its confirmed base locally as its "Merge" section says: no push,
-stop on a dirty base worktree, merge with `--no-commit`, commit only when the
-checks are green, else `git merge --abort` and report (conflicts: the
-orchestrator runs a `merge base` pass; red checks: it tells the human);
-switch the task worktree back to the task branch. Write `changes-N.md`.
+method (when the adapter requires a method flag and none is named: do not pick
+one, stop and report), then report. With no code host, the adapter is
+host-none: merge the task branch into its confirmed base locally as its "Merge"
+section says: no push, stop on a dirty base worktree, merge with `--no-commit`,
+commit only when the checks are green, else `git merge --abort` and report
+(conflicts: the orchestrator runs a `merge base` pass; red checks: it tells the
+human); switch the task worktree back to the task branch. Write `changes-N.md`.
 
 ## `changes-N.md` sections
 

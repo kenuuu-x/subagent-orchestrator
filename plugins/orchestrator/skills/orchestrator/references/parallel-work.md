@@ -11,6 +11,7 @@ cannot break each other. Max 3 implementers at once.
 - Preparing the next task (research, plan) while the previous one waits for the
   human or for a long run.
 - Screenshots check next to the review of the same diff.
+- Read-only custom roles of the phase `review` next to the reviewer.
 
 ## Only in sequence
 
@@ -21,6 +22,8 @@ cannot break each other. Max 3 implementers at once.
 - Commit and PR before a clean review and green checks.
 - Merge before the human's review threads are handled.
 - Two writers in the same file set.
+- A writing custom role and the implementer (or another writing role) of the
+  same worktree; the review waits for the last writer.
 
 ## Before starting a stream
 

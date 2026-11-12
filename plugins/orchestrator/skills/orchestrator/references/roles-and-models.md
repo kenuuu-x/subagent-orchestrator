@@ -3,7 +3,8 @@
 Pass `model` (alias: `opus`, `sonnet`, `haiku`) and `effort` (`low`, `medium`,
 `high`, `xhigh`) explicitly on every `Agent` call. Write both to `state.md`.
 That is the route check: the session cannot observe the actual model of a
-subagent. The hook denies an implementer call without `model`.
+subagent. The hook denies an implementer call without `model`. The reviewer
+compares the calls in `state.md` with the settings.
 
 ## Table by complexity class
 
@@ -20,8 +21,13 @@ subagent. The hook denies an implementer call without `model`.
 | Screenshots `orchestrator:visual-checker` | haiku / low | haiku / low | sonnet / medium |
 | Merge (new implementer, goal `merge`) | sonnet / low | sonnet / low | sonnet / low |
 | Merge base into branch, no conflicts (`general-purpose`) | haiku / low | haiku / low | haiku / low |
-| Mechanics: issue labels/comments, running a given script (`general-purpose`) | haiku / low | haiku / low | haiku / low |
+| Mechanics: tracker status/comments, running a given script (`general-purpose`) | haiku / low | haiku / low | haiku / low |
 | Orchestrator session itself | sonnet / medium (opus also fine) | | |
+
+Custom roles come from the settings file ([setup.md](setup.md)), not from this
+table: each has its own model and effort, passed on the `Agent` call. Rows of
+roles that the settings switch off (scout, tester, visual-checker) are skipped.
+The planner builds the task's table from the settings.
 
 Rules:
 

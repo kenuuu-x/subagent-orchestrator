@@ -17,8 +17,8 @@ can mean that limit, not a missing issue.
 ## Change status
 
 A status changes by a transition. List the transitions available for the issue
-now, and run the one whose target is the status name the human gave. Status
-names differ per queue; never guess them.
+now, and run the one whose target is the status name from `tracker.statuses`. Status
+names differ per queue; never guess them. Write only in mode `automate`.
 
 ## Comment
 

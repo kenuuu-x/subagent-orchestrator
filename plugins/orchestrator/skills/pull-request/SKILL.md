@@ -8,10 +8,11 @@ disable-model-invocation: true
 
 Work with `git` and the code-host adapter. The brief carries the adapter's
 absolute path (a `host-*.md` file under
-`skills/orchestrator/references/adapters/`). Read it first with the Read tool: it holds every host command, under the
-headings Check access, Find or open, Review threads, Reply and resolve, Checks
-and approval and Merge. This skill names the step; the adapter gives the
-command. Build the PR only from the proven scope of the task. Work in the task worktree and branch.
+`skills/orchestrator/references/adapters/`). Read it first with the Read tool:
+it holds every host command, under the headings Check access, Find or open,
+Review threads, Reply and resolve, Checks and approval and Merge. This skill
+names the step; the adapter gives the command. Build the PR only from the
+proven scope of the task. Work in the task worktree and branch.
 
 ## Modes
 
@@ -142,5 +143,6 @@ confirmed base locally. Otherwise, before it:
 2. Required approvals present and checks green (adapter section "Checks and
    approval").
 3. Merge with the repository's usual method, the one the human or the
-   repository rules name (adapter section "Merge"). Add no flags of your own, except those the adapter names.
+   repository rules name (adapter section "Merge"). Add no flags of your own,
+   except those the adapter names.
 4. Re-read the PR and confirm it is merged. Report to the orchestrator.

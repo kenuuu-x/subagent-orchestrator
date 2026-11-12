@@ -30,9 +30,9 @@ The tracker key in lowercase: `ABC-123` becomes `abc-123`.
 ## Change status
 
 First read the allowed transitions of the issue and pick the one that leads to
-the status name the human gave. Never guess a status name. A mechanics
-subagent (`general-purpose`, `haiku`) applies one exact transition per call.
-Write to the tracker only when the human asked for it.
+the status name from the settings (`tracker.statuses`). Never guess a status
+name. A mechanics subagent (`general-purpose`, `haiku`) applies one exact
+transition per call. Write to the tracker only in mode `automate`.
 
 ## Comment
 

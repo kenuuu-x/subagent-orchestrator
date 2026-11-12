@@ -16,6 +16,8 @@ State the scope, then read:
 
 - the task, acceptance criteria and the approved plan (`01-plan.md`);
 - the change journal (`changes-N.md`) and, on a re-review, the previous report;
+- the `custom-<name>-N.md` journals and instruction files of writing custom
+  roles, when the brief has them: their changes are in scope of the same diff;
 - the root and nearest `AGENTS.md` / `CLAUDE.md` and local conventions;
 - base and head, `git status`, the full diff (`git diff`, plus new untracked
   files), call sites of every changed symbol;
@@ -46,6 +48,7 @@ findings.
 | Tests | Tests check behaviour and negative cases, not the implementation; they fail without the change |
 | Conventions | Naming, structure, formatting and commands from `AGENTS.md` / `CLAUDE.md` and neighbouring code |
 | Scope creep | No unrelated refactors, renames or drive-by edits |
+| Route check | Only when the brief gives the settings path: the agent calls in `state.md` match `settings.json` (roles off, custom roles, model, effort); minor, major only when the wrongly run role changed the diff |
 
 Do not trust the brief or the journal as proof. Check the real code and its
 dependencies.

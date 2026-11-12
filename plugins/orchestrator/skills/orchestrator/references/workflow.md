@@ -12,17 +12,52 @@ every change.
 ## Adapters
 
 Everything that depends on the code host or the tracker lives in
-[adapters/](adapters/index.md). Choose them at intake as index.md says, and
-put the absolute path of the adapter in each brief that needs it
+[adapters/](adapters/index.md). Take them from the settings as index.md says,
+and put the absolute path of the adapter in each brief that needs it
 ([briefs.md](briefs.md), "Adapters in the brief"). A host is a hosting service
 or none (local commits). A tracker is GitHub Issues or the human's MCP server.
 
-Tracker automation points, only when the human asked for them and gave the
-status names: the start status when the plan is approved; the review status and
+Tracker automation points, only in tracker mode `automate`, with the status
+names from the settings: the start status when the plan is approved; the review status and
 a comment with the PR link after `publish`; the done status after `merge`.
 Each is one exact action for a `general-purpose` `haiku` mechanics subagent,
 with the text written by you. A refused write is reported to the human, not
 retried.
+
+## Custom roles
+
+Defined in the settings ([setup.md](setup.md)); the planner puts them in the
+task's role table. Both `model` and `effort` come from the settings and go on
+the `Agent` call. In `state.md` the role is `custom:<name>`, the goal is its
+phase. A role runs as `general-purpose` with its instruction file, or as the
+agent type the settings name. Each brief carries the absolute instruction path.
+
+Read-only roles (`writes: false`, the default) write only
+`<task dir>/custom-<name>-N.md` and never touch the worktree. Phases:
+
+- `research`: after the scout; the planner gets the file.
+- `plan`: after `01-plan.md`, before the retell; retell the notes with the plan.
+- `review`: in parallel with the reviewer, on the same uncommitted diff.
+- `publish`: a gate after the clean review and the size check, before the
+  `publish` pass.
+
+In `review` and `publish` the file starts with a verdict line as in
+[code-review](../../code-review/SKILL.md). A `REQUEST CHANGES` joins the fix
+loop: the `review fixes` brief lists the file next to `review-N.md`. On the
+next round the role checks only its own previous findings. `BLOCKED` stops the
+phase: tell the human.
+
+Writing roles (`writes: true`, phase `implementation`):
+
+- They run in the task worktree after the implementer pass `implementation`,
+  strictly one at a time: never together with an implementer or another writer.
+- Their changes stay uncommitted and join the diff. The review starts after the
+  last writer is done, so the normal review and re-review cover their changes.
+- A writer runs the plan's checks and writes `custom-<name>-N.md` as a change
+  journal with the sections of `changes-N.md`. It never commits.
+- Review findings on its changes go to a normal `review fixes` implementer.
+
+Roles in `roles_off` are skipped in every phase.
 
 ## Base branch confirmation
 
@@ -84,7 +119,8 @@ A fix pass resets checkpoint 3: new diff, new checks, new review.
 
 1. Reviewer returns `REQUEST CHANGES (<n> findings)`: save as `review-N.md`.
 2. Start a new implementer, pass N+1, goal `review fixes`, with the path to
-   `review-N.md` (and `visual-N.md`).
+   `review-N.md` (and `visual-N.md`, and each `custom-<name>-N.md` with a
+   `REQUEST CHANGES`).
 3. Implementer fixes every confirmed blocker and major finding. A finding it
    believes is wrong gets a short reasoned note in `changes-N+1.md`; you decide,
    and ask the human if it changes the plan.
@@ -172,7 +208,9 @@ Stop and return to the last confirmed checkpoint:
 
 - code before an approved plan;
 - base branch not confirmed;
-- a worktree shared by two writing tasks;
+- a worktree shared by two writing tasks, or by a writing custom role and an
+  implementer at the same time;
+- a review started before the writing custom roles finished;
 - a stacked branch created before its predecessor's `publish`;
 - commit, push or PR (PR comment fixes included) before a clean review and
   green checks;

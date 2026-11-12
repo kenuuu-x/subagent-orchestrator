@@ -19,8 +19,8 @@ kebab-case slug that the human confirms.
 ## Change status
 
 Read the transitions or states the server offers and use the one that leads to
-the status name the human gave. If the server offers none, tell the human and
-do not change the status.
+the status name from `tracker.statuses`. If the server offers none, tell the
+human and do not change the status. Write only in mode `automate`.
 
 ## Comment
 
