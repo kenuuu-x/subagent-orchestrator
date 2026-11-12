@@ -76,8 +76,8 @@ most.
 - Bulk file reading goes to the scout, which returns short summaries with paths
   and line numbers.
 - Max 3 implementers in parallel: one subscription feeds every subagent.
-- One review per task state. A stack of PRs for one task gets one review of the
-  whole diff after the last PR, then one focused re-review of the fixes.
+- One review per task state. In a stack each PR is its own task: it is reviewed
+  before its `publish`, and the next branch starts only after that `publish`.
 - Do not wake yourself in loops. A background subagent notifies you when it
   finishes.
 

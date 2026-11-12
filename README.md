@@ -21,7 +21,8 @@ Restart Claude Code (or run `/reload-plugins`) after installing.
 - Claude Code with subagent support (the `Agent` tool).
 - `git` 2.5+ (worktrees).
 - Optional: [GitHub CLI](https://cli.github.com/) logged in (`gh auth login`)
-  for issues and pull requests. Without it the flow stops after a local commit.
+  for issues and pull requests. Without it the flow stays local: a local
+  commit, and a local merge when you ask for it.
 - Python 3 for the plugin's safety hook.
 
 ## Quick start
@@ -108,15 +109,24 @@ A plugin hook enforces three rules that keep subagent usage cheap:
 
 ## Files it creates
 
-Task documents live outside your repository, in `~/.subagent-orchestrator/`:
+Task documents live outside your repository, in `~/.subagent-orchestrator/`,
+grouped per project:
 
 ```
 ~/.subagent-orchestrator/
-  orchestrator.md            queue, your decisions, active subagents
-  tasks/<task-id>/
-    research.md  01-plan.md  changes-N.md  review-N.md  visual-N.md
-    test-N.md  state.md  logs/
+  projects/<project-key>/
+    runs/<run-id>.md         one state file per run: queue, your decisions,
+                             active subagents
+    tasks/<task-id>/
+      research.md  01-plan.md  changes-N.md  review-N.md  visual-N.md
+      test-N.md  remarks-N.md  state.md  logs/
 ```
+
+The project key is the name of your checkout directory. Each orchestrator run
+has its own run file, so two sessions never overwrite each other; at start the
+orchestrator asks which active run to resume. A 0.1.0 home (`orchestrator.md`
+and `tasks/` directly in the home) can be resumed once and is moved into the
+new layout.
 
 Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
 
@@ -136,7 +146,9 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
   subscription.
 - The session cannot verify which model a subagent actually ran on; the
   orchestrator passes the model explicitly and records it in `state.md`.
-- Pull request support is GitHub only. Other hosts work up to a local commit.
+- Pull request support is GitHub only. Without a remote the flow is local: a
+  local commit, your remarks in chat, and a local merge when you ask. A stacked
+  task branches from its predecessor only after the predecessor is published.
 
 ## Development
 

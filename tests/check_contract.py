@@ -9,7 +9,9 @@ Fails when:
 - manifests disagree on name or version;
 - the role table differs between README, spec and roles-and-models.md;
 - a user-facing marker (home override line, pass goal, verdict line) is spelled
-  differently from the spec.
+  differently from the spec;
+- a stale work-home path from 0.1.0 appears anywhere;
+- the implementer description does not name all six pass goals.
 """
 
 import json
@@ -27,6 +29,11 @@ FORBIDDEN = re.compile(
 )
 # The spec and this test list the forbidden words on purpose.
 FORBIDDEN_SKIP = {ROOT / "docs" / "spec.md", Path(__file__).resolve()}
+
+# Work-home paths of 0.1.0. The layout is per project now, so they must not
+# come back. This test is the only file that spells them out.
+STALE_PATHS = re.compile(r"<home>/(?:orchestrator\.md|tasks\b)")
+PASS_GOALS = ("implementation", "review fixes", "publish", "PR comments", "merge base", "merge")
 
 TEXT_SUFFIXES = {".md", ".json", ".py", ".sh", ".yaml", ".yml", ".txt"}
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
@@ -70,6 +77,26 @@ def check_forbidden():
             match = FORBIDDEN.search(line)
             if match:
                 fail(path, f"line {number}: forbidden word {match.group(0)!r}")
+
+
+def check_stale_paths():
+    for path in text_files():
+        if path == Path(__file__).resolve():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            match = STALE_PATHS.search(line)
+            if match:
+                fail(path, f"line {number}: stale path {match.group(0)!r}")
+
+
+def check_implementer_description():
+    path = PLUGIN / "agents" / "implementer.md"
+    description = (frontmatter(path) or {}).get("description", "")
+    for goal in PASS_GOALS:
+        # "merge" alone must not be satisfied by "merge base".
+        tail = r"(?! base)" if goal == "merge" else ""
+        if not re.search(rf"(?<![\w-]){re.escape(goal)}(?![\w-]){tail}", description):
+            fail(path, f"description does not name the pass goal {goal!r}")
 
 
 def check_frontmatter():
@@ -164,14 +191,16 @@ def check_role_tables():
 
 def check_markers():
     home = "Subagent orchestrator home: <absolute path>"
-    goals = ("implementation", "review fixes", "publish", "PR comments", "merge base", "merge")
+    goals = PASS_GOALS
+    runs = "<home>/projects/<project-key>/runs/<run-id>.md"
+    tasks = "<home>/projects/<project-key>/tasks/<task-id>/"
     verdicts = ("APPROVE (<n> findings)", "REQUEST CHANGES (<n> findings)", "BLOCKED (<n> findings): <reason>")
     refs = PLUGIN / "skills" / "orchestrator" / "references"
     wanted = [
         (ROOT / "README.md", [home]),
-        (ROOT / "docs" / "spec.md", [home, *verdicts]),
-        (PLUGIN / "skills" / "orchestrator" / "SKILL.md", [home]),
-        (refs / "task-files.md", [home]),
+        (ROOT / "docs" / "spec.md", [home, runs, tasks, *verdicts]),
+        (PLUGIN / "skills" / "orchestrator" / "SKILL.md", [home, runs, tasks]),
+        (refs / "task-files.md", [home, runs, tasks, "- Status:", "- Sessions:"]),
         (PLUGIN / "skills" / "code-review" / "SKILL.md", list(verdicts)),
         (PLUGIN / "agents" / "reviewer.md", list(verdicts)),
         (refs / "briefs.md", [f"`{goal}`" for goal in goals]),
@@ -189,7 +218,9 @@ def check_markers():
 
 def main():
     check_forbidden()
+    check_stale_paths()
     agents = check_frontmatter()
+    check_implementer_description()
     check_links_and_refs(agents)
     check_manifests()
     check_role_tables()

@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: Implements one pass of one approved task in its worktree - implementation, review fixes, publish or PR comments - and writes the change journal.
+description: Implements one pass of one approved task in its worktree - implementation, review fixes, publish, PR comments, merge base or merge - and writes the change journal.
 disallowedTools: Agent
 ---
 
@@ -13,9 +13,14 @@ model and effort by the task's complexity class.
 - The branch name, the pass number N and the pass goal, one of:
   `implementation`, `review fixes`, `publish`, `PR comments`, `merge base`,
   `merge`.
-- For `review fixes`: the path of `review-N.md` and/or `visual-N.md` to fix.
+- For `review fixes`: the path of `review-N.md` and/or `visual-N.md` to fix,
+  and with no code host the path of `remarks-N.md` (the human's remarks).
 - For `publish`, `PR comments` and `merge`: the absolute path of
   `skills/pull-request/SKILL.md` under the plugin root.
+- With no code host (no remote, or no `gh` login), for `publish` and `merge`:
+  also the absolute path of `skills/orchestrator/references/adapters/host-none.md`
+  under the plugin root. For `merge` also the task branch, the confirmed base
+  branch and the check commands.
 - For `merge base`: the base branch name. Run it only on a clean worktree
   (after `publish`); if the worktree has uncommitted changes, stop and report.
 - Optionally `Hard part: <files>` (opus pass): then change only those files.
@@ -25,6 +30,9 @@ model and effort by the task's complexity class.
 If a required path is missing, ask. Do not guess.
 
 Work only in this worktree and on this branch. Never touch other branches.
+Exception: with no code host, goal `merge` writes the confirmed base branch as
+the host-none adapter's "Merge" section says (in the worktree where the base
+is checked out, or in this worktree switched to the base and back).
 
 ## Starting a pass after the first
 
@@ -44,7 +52,8 @@ worktree. Do not redo earlier decisions without a reason from the review.
 - Run the plan's checks yourself and fix failures. Send long command output to
   files in the task's `logs/` directory and read only the tail and the errors.
 - The diff stays uncommitted until the `publish` pass. Do not commit, push or
-  open a PR in any other pass, except the merge commit of `merge base`.
+  open a PR in any other pass, except the merge commit of `merge base` and, with
+  no code host, the local merge commit of `merge`.
 - Never wait for the human. Report what you could not decide and finish.
 - Never open image files. Screenshots you take are only listed by path.
 
@@ -62,7 +71,8 @@ under "Decisions and reasons". Re-run the checks and write `changes-N.md`.
 with the Read tool and follow it: preconditions, commit, push and PR, with
 minor findings listed in the PR description. When the brief names fixed review
 threads, also resolve them after the push. Report the commit SHA and the PR
-URL; with no remote, stop after the local commit and say so. Write
+URL; with no remote, read the host-none adapter, stop after the local commit
+and say so. Write
 `changes-N.md` with the final HEAD SHA.
 
 **PR comments**: Read the same skill and follow its comment loop up to the
@@ -78,7 +88,11 @@ conflicted files and how you resolved them in `changes-N.md`.
 
 **merge**: only after the human asked for it. Read the pull-request skill and
 follow its merge section: checks green, approval present, `gh pr merge` with
-the repository's merge method, then report. Write `changes-N.md`.
+the repository's merge method, then report. With no code host, read the
+host-none adapter and merge the task branch into its confirmed base locally as
+its "Merge" section says: no push, stop on a dirty base worktree, merge with
+`--no-commit`, commit only when the checks are green, else `git merge --abort`
+and report; switch the task worktree back to the task branch. Write `changes-N.md`.
 
 ## `changes-N.md` sections
 
