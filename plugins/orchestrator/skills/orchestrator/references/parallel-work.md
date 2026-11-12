@@ -24,7 +24,7 @@ cannot break each other. Max 3 implementers at once.
 
 ## Before starting a stream
 
-Record in your state file: inputs, file or module ownership, done criteria,
+Record in your run file: inputs, file or module ownership, done criteria,
 blockers, dependencies. If two streams own overlapping files, merge them into
 one task or run them in sequence.
 
@@ -33,10 +33,18 @@ one task or run them in sequence.
 - Give the dependent task the exact base branch (the predecessor's branch),
   the merge order and the condition to retarget or rebase after the predecessor
   merges.
+- Create the dependent branch only after the predecessor's `publish`, so the
+  base holds the published commits. Until then only its research and plan may
+  run. This holds with and without a remote.
+- After the predecessor merges (on a remote, or locally with no code host, see
+  [adapters/host-none.md](adapters/host-none.md)), the dependent task's base
+  becomes the predecessor's base (the human confirms) and is merged into the
+  dependent branch.
 - Each PR must be reviewable and green on its own and must not break its base.
 - Do not split work just to have more parallel streams.
 
 ## One worktree per writer
 
 Each writing task has its own worktree and branch. Never run two implementers
-in one worktree.
+in one worktree. Remove a worktree only after its merge and the human's
+agreement.

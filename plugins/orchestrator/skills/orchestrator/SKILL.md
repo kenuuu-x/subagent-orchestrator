@@ -20,24 +20,30 @@ References (read them at start-up):
 - [roles-and-models.md](references/roles-and-models.md) — roles, models, complexity class, economy.
 - [briefs.md](references/briefs.md) — what each brief must contain.
 - [parallel-work.md](references/parallel-work.md) — what may run in parallel.
-- [task-files.md](references/task-files.md) — task directory, `state.md`, your state file.
+- [task-files.md](references/task-files.md) — project and task directories, `state.md`, your run file.
 
 Other skills: [code-review](../code-review/SKILL.md), [pull-request](../pull-request/SKILL.md).
+No code host: [adapters/host-none.md](references/adapters/host-none.md).
 
 ## Start-up
 
 1. Read the five references above.
 2. Plugin root: the command text carries it as an absolute path. Record it in
-   your state file. Subagents cannot open relative plugin links, so every brief
+   your run file. Subagents cannot open relative plugin links, so every brief
    uses absolute paths built from this root.
 3. Work home: `$SUBAGENT_ORCHESTRATOR_HOME`, else the line
    `Subagent orchestrator home: <absolute path>` in the project's `CLAUDE.md`,
    else `~/.subagent-orchestrator/`. Expand `~` before you pass
-   any path to a subagent. Create the home and `tasks/` if missing.
-4. Open your state file `<home>/orchestrator.md` (template in
-   [task-files.md](references/task-files.md)). If it exists, resume from it
-   instead of starting over.
-5. Per task, confirm with the human: repository, base branch, task id.
+   any path to a subagent.
+4. Project: the project key and directory per [task-files.md](references/task-files.md).
+   Create `<home>/projects/<project-key>/runs/` and `tasks/` if missing. Run
+   files live in `<home>/projects/<project-key>/runs/<run-id>.md`, task
+   directories in `<home>/projects/<project-key>/tasks/<task-id>/`.
+5. Run file: list the active run files of the project. None: start a new run
+   from the template in [task-files.md](references/task-files.md). Some: show
+   them and ask which to resume or whether to start a new run; never resume
+   silently. A legacy 0.1.0 home: follow the legacy rule in task-files.md.
+6. Per task, confirm with the human: repository, base branch, task id.
 
 ## Intake
 
@@ -47,18 +53,19 @@ branch (human-confirmed), links.
 - `#123` is a GitHub issue. Read it with `gh issue view 123 --comments`. Task
   id: `gh-123`.
 - Free text is a task description. Pick a short kebab-case slug as task id and
-  confirm it with the human.
+  confirm it with the human. Task ids per project: see task-files.md.
 - Missing or contradictory acceptance criteria: ask. Do not invent them.
-- No `gh`, no remote or no login: continue; the flow ends at a local commit
-  ([pull-request](../pull-request/SKILL.md)). Tell the human once.
+- No `gh`, no remote or no login: continue; `publish` is a local commit and
+  `merge` a local merge ([host-none.md](references/adapters/host-none.md)).
+  Tell the human once.
 
-Create the task directory and `state.md` per [task-files.md](references/task-files.md).
+Create the task directory and `state.md` (with `Run: <project-key>/<run-id>`) per [task-files.md](references/task-files.md).
 
 ## Decompose
 
 Split the work into tasks with one goal each. Build a dependency graph and
 decide what may run in parallel per [parallel-work.md](references/parallel-work.md).
-Record inputs, file ownership and blockers of every stream in your state file.
+Record inputs, file ownership and blockers of every stream in your run file.
 
 ## Flow per task
 
@@ -72,7 +79,9 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
    checks) and give the path. A bare link is not enough. Remarks go to the same
    planner with `SendMessage`, addressed by its agent id from `state.md`, never
    by name. No code before an explicit "yes".
-4. Branch and worktree from the confirmed base (you run these git commands).
+4. Branch and worktree from the confirmed base (you run these git commands). A
+   stacked task branches from its predecessor's branch only after the
+   predecessor's `publish`.
 5. Implement: `orchestrator:implementer`, goal `implementation`, in the
    background. The diff stays uncommitted until the review is clean.
 6. Review: a fresh `orchestrator:reviewer` per [code-review](../code-review/SKILL.md).
@@ -91,14 +100,18 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
    new implementer with goal `publish` follows [pull-request](../pull-request/SKILL.md).
 10. "Done reviewing" from the human: a new implementer, goal `PR comments`,
     fixes the human's unresolved review threads and leaves the diff
-    uncommitted. Then a focused re-review (reviewer, "Re-review" rows). Only
-    after `APPROVE` a new implementer, goal `publish`, commits, pushes and
-    resolves the fixed threads.
+    uncommitted. With no code host the remarks come in chat: save them
+    verbatim as `remarks-N.md` and run a `review fixes` pass with that path.
+    Then a focused re-review (reviewer, "Re-review" rows). Only after `APPROVE`
+    a new implementer, goal `publish`, commits, pushes and resolves the fixed
+    threads.
 11. Base moved: merge it into the branch only on a clean worktree, that is
     after `publish`. A clean merge is a `general-purpose` `haiku` mechanics
     subagent; with conflicts a new implementer, goal `merge base`. If the base
     moves before `publish`, tell the human and keep working on the old base.
-12. Merge only when the human explicitly asks: a new implementer, goal `merge`.
+12. Merge only when the human explicitly asks: a new implementer, goal `merge`
+    (with no code host a local merge). Remove the worktree after the merge, only
+    if the human agrees.
 
 ## Quality control
 
@@ -120,7 +133,7 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
   transcripts. Do not repeat finished messages. No news is not an error.
 - Long output goes to `logs/`; read the tail and the errors only.
 - Around 100k tokens of context, offer to restart the orchestrator session, but
-  only when no subagent is running. The new session resumes from your state
+  only when no subagent is running. The new session resumes from your run
   file and the task directories.
 
 ## Summary format
@@ -142,7 +155,9 @@ Stop and return to the last confirmed checkpoint if you notice any of these:
 - an old implementer continued with a long history instead of a new pass;
 - a subagent other than `orchestrator:visual-checker` opening images;
 - a plan retold as a bare link;
-- merge without the human's explicit request.
+- merge without the human's explicit request;
+- a stacked branch created before its predecessor's `publish`;
+- a task owned by another active run touched without the human's word.
 
 Project knowledge does not belong in this plugin. Each subagent reads it from
 the target repository (`AGENTS.md`, `CLAUDE.md`, README).

@@ -38,8 +38,10 @@ All must hold. If not, stop and report which one failed.
 ## Remote and tools
 
 - `git remote -v` and `gh auth status`. No remote, or `gh` missing or not logged
-  in: commit locally, then stop. Report the branch, the SHA and the reason you
-  did not push. Do not try other hosting.
+  in: there is no code host. Follow the host-none adapter (absolute path in the
+  brief; file `adapters/host-none.md` under the orchestrator references): commit
+  locally and stop. Report the branch, the SHA and the reason you did not push.
+  Do not try other hosting.
 - Find an existing PR for the branch first: `gh pr list --head <branch> --json number,url`.
   Update it instead of creating a duplicate.
 
@@ -133,7 +135,9 @@ The orchestrator then runs a focused re-review; only after `APPROVE` does a
 
 ## Merge
 
-Goal `merge`, only after the human's explicit request. Before it:
+Goal `merge`, only after the human's explicit request. With no code host there
+is no PR: follow the host-none adapter, which merges the task branch into its
+confirmed base locally. Otherwise, before it:
 
 1. No unresolved human threads; other people's comments handled.
 2. Required approvals present and checks green: `gh pr checks <n>`,

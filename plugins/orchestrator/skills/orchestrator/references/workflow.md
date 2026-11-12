@@ -21,6 +21,12 @@ Before any branch or worktree, per task:
 
 No remote: the base is the current local branch; still ask.
 
+Stacked task: the base is the predecessor's branch, and the branch is created
+only after the predecessor's `publish`, so it contains the published commits.
+The rule is the same with and without a remote. After the predecessor merges,
+the base becomes the predecessor's base (the human confirms) and is merged
+into the dependent branch.
+
 ## Worktree and branch
 
 - Branch: `<type>/<task-id>`, `type` is `feat`, `fix`, `refactor`, `docs` or
@@ -37,7 +43,9 @@ No remote: the base is the current local branch; still ask.
 - You run this git mechanics yourself, since it touches no code:
   `git fetch`, creating the branch and worktree, and `git worktree remove`
   after the merge. Everything else in git goes through a subagent.
-- Remove the worktree only after the PR is merged and the human agrees.
+- Remove the worktree only after the merge (the PR merged, or the local merge
+  with no code host) and the human agrees. The branch stays; delete it only
+  when the human asks.
 
 ## Checkpoints
 
@@ -79,7 +87,9 @@ the new diff before `publish`.
 
 ## PR comments loop
 
-After the human says "done reviewing":
+After the human says "done reviewing" (with no code host: after the human's
+remarks in chat, saved as `remarks-N.md`, which go through a `review fixes` pass
+and the same re-review, see [adapters/host-none.md](adapters/host-none.md)):
 
 1. New implementer, goal `PR comments`: fixes the human's valid unresolved
    threads, replies only to invalid ones, leaves the diff uncommitted and lists
@@ -100,9 +110,16 @@ Nothing reaches the PR branch before step 3.
   `haiku` mechanics subagent runs the merge. With conflicts: a new implementer,
   goal `merge base`. Re-review a conflict resolution before the next push.
 - Merge: only when the human explicitly asks. Set the phase `merging`. New
-  implementer, goal `merge`:
-  checks green, approval present, `gh pr merge` with the repository's merge
-  method, then it reports.
+  implementer, goal `merge`: checks green, approval present, `gh pr merge` with
+  the repository's merge method, then it reports.
+- No code host: there is no PR. Goal `merge` merges the task branch into its
+  confirmed base locally, as described in
+  [adapters/host-none.md](adapters/host-none.md): find where the base is
+  checked out, merge in a clean worktree (never stash a dirty one), method the
+  human or repository names else `--no-ff --no-commit`, the plan's checks on
+  the result, commit only when green, else `git merge --abort` (then a `merge base` pass for conflicts);
+  switch the task worktree back to the task branch. Then remove the worktree
+  if the human agrees.
 
 ## PR size check
 
@@ -138,6 +155,7 @@ Stop and return to the last confirmed checkpoint:
 - code before an approved plan;
 - base branch not confirmed;
 - a worktree shared by two writing tasks;
+- a stacked branch created before its predecessor's `publish`;
 - commit, push or PR (PR comment fixes included) before a clean review and
   green checks;
 - reviewer result not saved as `review-N.md`, or retold from memory;

@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 Plugin root: `${CLAUDE_PLUGIN_ROOT}`
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/SKILL.md` and follow it. Record the plugin root above in your state file; build absolute paths to plugin files from it.
+Read `${CLAUDE_PLUGIN_ROOT}/skills/orchestrator/SKILL.md` and follow it. Record the plugin root above in your run file; build absolute paths to plugin files from it.
 
 Coordinate only these tasks: `$ARGUMENTS`
 
