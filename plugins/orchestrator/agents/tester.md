@@ -12,7 +12,8 @@ model and effort.
 ## Inputs from the brief
 
 - The task's acceptance criteria.
-- The absolute path of the worktree and of the task directory.
+- The absolute path of the task directory, and the standalone line
+  `Worktree: <absolute path>` (the worktree).
 - The absolute path of `01-plan.md` and of the newest `changes-N.md`.
 - The test pass number N.
 

@@ -63,6 +63,10 @@ implementer runs on sonnet. A separate short implementer on `opus` handles only
 those files. Only the opus implementer brief carries `Complexity: hard` or
 `Hard part: <files>`; the hook blocks it otherwise. The main sonnet brief
 carries `Skip (separate opus pass): <files>` and must not change those files.
+Because of the one-writer-per-worktree rule, the two implementers of one task
+run one after the other in the same worktree, never at the same time. The pass
+that the plan puts first goes first; by default the hard part goes first, while
+the main pass skips those files.
 
 Stuck on sonnet (two attempts at the same error, or edits going in circles):
 repeat the step with a new `opus` implementer. Do not keep pushing sonnet.

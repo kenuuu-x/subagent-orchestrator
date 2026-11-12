@@ -100,6 +100,8 @@ class HomeFixture(unittest.TestCase):
         cls.settings.write_text(json.dumps(settings_data(cls.repo, cls.instructions)), encoding="utf-8")
         write_run(cls.home, "app", "20261112-1000", "active", f"other-session, {SESSION}")
         cls.task_dir = cls.project / "tasks" / "gh-1"
+        cls.worktree = root / "repos" / "app-worktrees" / "gh-1"
+        cls.worktree.mkdir(parents=True)
         HOME_OVERRIDE["path"] = str(cls.home)
 
     @classmethod
@@ -109,7 +111,7 @@ class HomeFixture(unittest.TestCase):
 
     def brief(self, text="Do the work.", task_dir=None):
         task_dir = self.task_dir if task_dir is None else task_dir
-        return f"Task directory: {task_dir}\nTask: gh-1, test\n{text}"
+        return f"Task directory: {task_dir}\nTask: gh-1, test\nWorktree: {self.worktree}\n{text}"
 
     def agent(self, subagent_type=IMPLEMENTER, model="opus", prompt="Do the work.", raw=False,
               session=SESSION, effort=None, cwd=None):
@@ -621,6 +623,392 @@ class SettingsWriteTest(HomeFixture):
             with self.subTest(path=path):
                 self.assertEqual(decide(self.write("junk", path=path)), "allow")
                 self.assertEqual(decide(self.write(None, tool="Edit", path=path)), "allow")
+
+
+def write_sub(session_dir, agent_id, agent_type, brief, minutes_ago=1, finished=False, content_list=False):
+    """A subagent transcript whose first user message is `brief`."""
+    sub = Path(session_dir) / "subagents"
+    sub.mkdir(parents=True, exist_ok=True)
+    meta = {"agentType": agent_type}
+    if finished:
+        meta["finished"] = True
+    (sub / f"agent-{agent_id}.meta.json").write_text(json.dumps(meta), encoding="utf-8")
+    stamp = (datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
+    content = [{"type": "text", "text": brief}] if content_list else brief
+    lines = [
+        {"type": "user", "timestamp": stamp, "message": {"role": "user", "content": content}},
+        {"type": "assistant", "timestamp": stamp, "message": {"usage": {"input_tokens": 5}}},
+    ]
+    (sub / f"agent-{agent_id}.jsonl").write_text("\n".join(json.dumps(x) for x in lines), encoding="utf-8")
+
+
+class OneWriterTest(HomeFixture):
+    """Rule 10."""
+
+    def setUp(self):
+        self.session_tmp = tempfile.TemporaryDirectory()
+        self.session_dir = Path(self.session_tmp.name) / "session"
+        self.transcript = str(self.session_dir) + ".jsonl"
+        Path(self.transcript).write_text("", encoding="utf-8")
+
+    def tearDown(self):
+        self.session_tmp.cleanup()
+
+    def with_transcript(self, event, agent_id=None):
+        event["transcript_path"] = self.transcript
+        if agent_id:
+            event["agent_id"] = agent_id
+        return event
+
+    def implementer(self, prompt="Pass 2.", raw=False, agent_id=None):
+        return self.with_transcript(self.agent(model="sonnet", prompt=prompt, raw=raw), agent_id)
+
+    def perf_call(self, prompt=None):
+        prompt = prompt if prompt is not None else self.brief("Fix it.")
+        event = self.agent(subagent_type="perf-agent", model="sonnet", effort="medium", prompt=prompt, raw=True)
+        return self.with_transcript(event)
+
+    def busy(self, agent_id="a1", agent_type=IMPLEMENTER, worktree=None, **kwargs):
+        worktree = self.worktree if worktree is None else worktree
+        write_sub(self.session_dir, agent_id, agent_type, self.brief(f"Worktree: {worktree}"), **kwargs)
+
+    def test_missing_worktree_line_denied(self):
+        prompt = f"Task directory: {self.task_dir}\nTask: gh-1, test\nWork in the worktree."
+        event = self.implementer(prompt=prompt, raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("standalone line 'Worktree: <absolute path>'", reason(event))
+
+    def test_relative_worktree_denied(self):
+        prompt = f"Task directory: {self.task_dir}\nWorktree: repos/app\nWork."
+        self.assertEqual(decide(self.implementer(prompt=prompt, raw=True)), "deny")
+
+    def test_free_worktree_allowed(self):
+        self.assertEqual(decide(self.implementer()), "allow")
+
+    def test_unfinished_writer_denied(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."))
+        event = self.implementer()
+        self.assertEqual(decide(event), "deny")
+        text = reason(event)
+        self.assertIn("Only one writer per worktree", text)
+        self.assertIn("a1", text)
+        self.assertIn(str(self.worktree), text)
+        self.assertRegex(text, r"last activity \d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+        self.assertRegex(text, r"After a resume .* wait until \d{4}-\d{2}-\d{2} \d{2}:\d{2}")
+        self.assertIn("ask the human", text)
+
+    def test_brief_as_text_blocks(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."), content_list=True)
+        self.assertEqual(decide(self.implementer()), "deny")
+
+    def test_finished_writer_allowed(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."), finished=True)
+        self.assertEqual(decide(self.implementer()), "allow")
+
+    def test_idle_writer_allowed(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."), minutes_ago=61)
+        self.assertEqual(decide(self.implementer()), "allow")
+
+    def test_other_worktree_allowed(self):
+        other = Path(self.tmp.name).resolve() / "repos" / "app-worktrees" / "gh-2"
+        other.mkdir(parents=True, exist_ok=True)
+        write_sub(self.session_dir, "a1", IMPLEMENTER, f"Task directory: {self.task_dir}\nWorktree: {other}\n")
+        self.assertEqual(decide(self.implementer()), "allow")
+
+    def test_symlinked_worktree_denied(self):
+        link = Path(self.session_tmp.name) / "wt-link"
+        link.symlink_to(self.worktree)
+        write_sub(self.session_dir, "a1", IMPLEMENTER, f"Task directory: {self.task_dir}\nWorktree: {link}\n")
+        self.assertEqual(decide(self.implementer()), "deny")
+
+    def test_read_only_plugin_roles_do_not_lock(self):
+        for index, role in enumerate(("orchestrator:reviewer", "orchestrator:scout",
+                                      "orchestrator:planner", "orchestrator:visual-checker")):
+            write_sub(self.session_dir, f"r{index}", role, self.brief("Review."))
+        self.assertEqual(decide(self.implementer()), "allow")
+
+    def test_tester_and_custom_roles_lock(self):
+        for agent_type in ("orchestrator:tester", "general-purpose", "perf-agent"):
+            with self.subTest(agent_type=agent_type):
+                write_sub(self.session_dir, "w1", agent_type, self.brief("Write."))
+                self.assertEqual(decide(self.implementer()), "deny")
+
+    def test_tester_call_checked(self):
+        original = self.settings.read_text(encoding="utf-8")
+        data = json.loads(original)
+        data["roles_off"] = []
+        self.settings.write_text(json.dumps(data), encoding="utf-8")
+        try:
+            tester = self.with_transcript(self.agent(subagent_type="orchestrator:tester", model="sonnet"))
+            self.assertEqual(decide(tester), "allow")
+            prompt = f"Task directory: {self.task_dir}\nTask: gh-1, tests\nWrite tests."
+            bare = self.with_transcript(self.agent(subagent_type="orchestrator:tester", model="sonnet",
+                                                   prompt=prompt, raw=True))
+            self.assertEqual(decide(bare), "deny")
+            self.assertIn("A tester writes in a worktree", reason(bare))
+            write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."))
+            self.assertEqual(decide(tester), "deny")
+        finally:
+            self.settings.write_text(original, encoding="utf-8")
+
+    def test_caller_itself_skipped(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."))
+        self.assertEqual(decide(self.implementer(agent_id="a1")), "allow")
+
+    def test_no_transcript_allows(self):
+        event = self.agent(model="sonnet")
+        self.assertEqual(decide(event), "allow")
+
+    def test_writing_custom_role(self):
+        prompt = f"Task directory: {self.task_dir}\nFix it."
+        event = self.perf_call(prompt)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("The writing custom role perf-fixer", reason(event))
+        self.assertEqual(decide(self.perf_call()), "allow")
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."))
+        self.assertEqual(decide(self.perf_call()), "deny")
+
+    def test_read_only_custom_role_not_locked(self):
+        write_sub(self.session_dir, "a1", IMPLEMENTER, self.brief("Pass 1."))
+        prompt = f"Instructions: {self.instructions}\nReview."
+        event = self.with_transcript(self.agent(subagent_type="general-purpose", model="opus",
+                                                effort="high", prompt=prompt))
+        self.assertEqual(decide(event), "allow")
+
+
+class ReadOnlyRoleWriteTest(HomeFixture):
+    """Rule 12."""
+
+    def setUp(self):
+        self.session_tmp = tempfile.TemporaryDirectory()
+        self.session_dir = Path(self.session_tmp.name) / "session"
+        self.transcript = str(self.session_dir) + ".jsonl"
+        self.task_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        self.session_tmp.cleanup()
+
+    def reviewer_brief(self, task_dir=None):
+        return self.brief(f"Instructions: {self.instructions}\nRead-only.", task_dir=task_dir)
+
+    def write_event(self, path, agent_id="ro1", agent_type="general-purpose", tool="Write", cwd=None):
+        tool_input = {"file_path": str(path), "content": "x"}
+        event = {"tool_name": tool, "tool_input": tool_input, "session_id": SESSION,
+                 "transcript_path": self.transcript, "agent_id": agent_id, "agent_type": agent_type}
+        if cwd is not None:
+            event["cwd"] = str(cwd)
+        return event
+
+    def test_outside_task_directory_denied(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        for tool in ("Write", "Edit", "MultiEdit"):
+            with self.subTest(tool=tool):
+                event = self.write_event(self.worktree / "src.py", tool=tool)
+                self.assertEqual(decide(event), "deny")
+                self.assertIn("security-reviewer is read-only", reason(event))
+                self.assertIn(str(self.task_dir), reason(event))
+
+    def test_inside_task_directory_allowed(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        self.assertEqual(decide(self.write_event(self.task_dir / "custom-security-reviewer-1.md")), "allow")
+        relative = self.write_event("custom-security-reviewer-1.md", cwd=self.task_dir)
+        self.assertEqual(decide(relative), "allow")
+
+    def test_dot_dot_escape_denied(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        self.assertEqual(decide(self.write_event(f"{self.task_dir}/../gh-2/x.md")), "deny")
+
+    def test_symlink_escape_denied(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        link = self.task_dir / "escape"
+        if not link.exists():
+            link.symlink_to(self.worktree)
+        self.assertEqual(decide(self.write_event(link / "src.py")), "deny")
+
+    def test_untrusted_task_directory_denied(self):
+        foreign = Path(self.session_tmp.name) / "other-home" / "projects" / "app" / "tasks" / "gh-1"
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief(task_dir=foreign) )
+        event = self.write_event(foreign / "notes.md", cwd=self.repo)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("no Task directory line in the work home", reason(event))
+
+    def test_notebook_edit_denied(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        event = self.write_event(self.worktree / "a.ipynb", tool="NotebookEdit")
+        event["tool_input"] = {"notebook_path": str(self.worktree / "a.ipynb")}
+        self.assertEqual(decide(event), "deny")
+
+    def test_writing_role_allowed(self):
+        write_sub(self.session_dir, "w1", "perf-agent", self.brief("Fix it."))
+        self.assertEqual(decide(self.write_event(self.worktree / "src.py", "w1", "perf-agent")), "allow")
+
+    def test_plain_general_purpose_allowed(self):
+        write_sub(self.session_dir, "g1", "general-purpose", self.brief("Search for X."))
+        self.assertEqual(decide(self.write_event(self.worktree / "src.py", "g1")), "allow")
+
+    def test_plugin_agent_skipped(self):
+        write_sub(self.session_dir, "p1", IMPLEMENTER, self.reviewer_brief())
+        self.assertEqual(decide(self.write_event(self.worktree / "src.py", "p1", IMPLEMENTER)), "allow")
+
+    def test_without_agent_id_allowed(self):
+        event = self.write_event(self.worktree / "src.py")
+        del event["agent_id"]
+        self.assertEqual(decide(event), "allow")
+
+    def test_unsafe_agent_id_skipped(self):
+        write_sub(self.session_dir, "ro1", "general-purpose", self.reviewer_brief())
+        self.assertEqual(decide(self.write_event(self.worktree / "src.py", agent_id="../ro1")), "allow")
+
+    def test_missing_transcript_allowed(self):
+        self.assertEqual(decide(self.write_event(self.worktree / "src.py", agent_id="nobody")), "allow")
+
+
+class TrustedHomeTest(HomeFixture):
+    """Hardening: the brief's home must be the trusted home (rules 5-9) and
+    the settings-file target is resolved before rule 11 checks it."""
+
+    def setUp(self):
+        self.other = tempfile.TemporaryDirectory()
+        self.foreign_home = Path(self.other.name).resolve() / "home"
+        project = self.foreign_home / "projects" / "app"
+        project.mkdir(parents=True)
+        data = settings_data(self.repo, self.instructions)
+        data["custom_roles"][0]["model"] = "haiku"
+        data["roles_off"] = []
+        (project / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+        write_run(self.foreign_home, "app", "20261112-0100", "active", "sess-foreign")
+        self.foreign_task = project / "tasks" / "gh-1"
+
+    def tearDown(self):
+        self.other.cleanup()
+
+    def test_plugin_call_outside_home_denied(self):
+        event = self.agent(subagent_type="orchestrator:planner", prompt=self.brief(task_dir=self.foreign_task),
+                           raw=True, session="sess-foreign")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("Task directory is outside the work home", reason(event))
+
+    def test_symlinked_home_allowed(self):
+        link = Path(self.other.name) / "home-link"
+        link.symlink_to(self.home)
+        task = link / "projects" / "app" / "tasks" / "gh-1"
+        event = self.agent(subagent_type="orchestrator:planner", prompt=self.brief(task_dir=task), raw=True)
+        self.assertEqual(decide(event), "allow")
+
+    def test_custom_role_uses_trusted_settings(self):
+        prompt = self.brief(f"Instructions: {self.instructions}\nReview.", task_dir=self.foreign_task)
+        event = self.agent(subagent_type="general-purpose", model="haiku", effort="high", prompt=prompt,
+                           raw=True, cwd=self.repo)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn(str(self.settings), reason(event))
+
+    def settings_write(self, path, cwd=None, content="{oops"):
+        event = {"tool_name": "Write", "tool_input": {"file_path": str(path), "content": content},
+                 "session_id": SESSION}
+        if cwd is not None:
+            event["cwd"] = str(cwd)
+        return event
+
+    def test_symlink_to_project_checked(self):
+        link = Path(self.other.name) / "proj-link"
+        link.symlink_to(self.project)
+        event = self.settings_write(link / "settings.json")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("not valid JSON", reason(event))
+
+    def test_symlink_named_otherwise_checked(self):
+        link = Path(self.other.name) / "innocent.json"
+        link.symlink_to(self.settings)
+        self.assertEqual(decide(self.settings_write(link)), "deny")
+
+    def test_relative_target_checked(self):
+        event = self.settings_write("settings.json", cwd=self.project)
+        self.assertEqual(decide(event), "deny")
+        event = self.settings_write("../settings.json", cwd=self.project / "roles")
+        self.assertEqual(decide(event), "deny")
+
+    def test_home_case_variant_checked(self):
+        variant = Path(str(self.home).swapcase())
+        if not variant.exists():
+            self.skipTest("case-sensitive file system")
+        event = self.settings_write(variant / "projects" / "app" / "settings.json")
+        self.assertEqual(decide(event), "deny")
+
+    def test_foreign_home_settings_ignored(self):
+        self.assertEqual(decide(self.settings_write(self.foreign_home / "projects" / "app" / "settings.json")), "allow")
+
+
+class RepoHomeTest(unittest.TestCase):
+    """A session started outside the repository: the brief's home is trusted
+    when the repository in that project's settings names it in CLAUDE.md."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name).resolve()
+        self.parent = self.root / "work"
+        self.repo = self.parent / "app"
+        (self.repo / ".git").mkdir(parents=True)
+        self.home = self.root / "app-home"
+        (self.repo / "CLAUDE.md").write_text(f"Subagent orchestrator home: {self.home}\n", encoding="utf-8")
+        self.instructions = self.root / "role.md"
+        self.instructions.write_text("Check.", encoding="utf-8")
+        self.forged = self.root / "forged"
+        for home in (self.home, self.forged):
+            project = home / "projects" / "app"
+            project.mkdir(parents=True)
+            data = settings_data(self.repo, self.instructions)
+            (project / "settings.json").write_text(json.dumps(data), encoding="utf-8")
+            write_run(home, "app", "20261112-1000", "active", SESSION)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def hook(self, event):
+        env = {k: v for k, v in os.environ.items() if k != "SUBAGENT_ORCHESTRATOR_HOME"}
+        env.update(HOME=str(self.root / "user"), PYTHONDONTWRITEBYTECODE="1")
+        result = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(event), capture_output=True,
+                                text=True, timeout=20, env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)["hookSpecificOutput"] if result.stdout.strip() else None
+
+    def planner(self, home):
+        prompt = f"Task directory: {home}/projects/app/tasks/gh-1\nTask: gh-1, plan\n"
+        return {"tool_name": "Agent", "session_id": SESSION, "cwd": str(self.parent),
+                "tool_input": {"subagent_type": "orchestrator:planner", "model": "opus", "prompt": prompt}}
+
+    def test_home_named_by_repository_allowed(self):
+        self.assertIsNone(self.hook(self.planner(self.home)))
+
+    def test_forged_home_denied(self):
+        out = self.hook(self.planner(self.forged))
+        self.assertEqual(out["permissionDecision"], "deny")
+        text = out["permissionDecisionReason"]
+        self.assertIn("Task directory is outside the work home", text)
+        self.assertIn(f"cwd {self.parent}", text)
+        self.assertIn(f"CLAUDE.md names {self.forged}", text)
+        self.assertIn("SUBAGENT_ORCHESTRATOR_HOME", text)
+        self.assertNotIn("/orchestrator:setup", text)
+
+    def test_named_home_without_settings_points_to_setup(self):
+        settings = self.home / "projects" / "app" / "settings.json"
+        for content in (None, "{oops"):
+            with self.subTest(content=content):
+                if content is None:
+                    settings.unlink()
+                else:
+                    settings.write_text(content, encoding="utf-8")
+                out = self.hook(self.planner(self.home))
+                self.assertEqual(out["permissionDecision"], "deny")
+                self.assertIn("no valid settings.json yet: run /orchestrator:setup",
+                              out["permissionDecisionReason"])
+
+    def test_settings_write_in_named_home_checked(self):
+        target = self.home / "projects" / "app" / "settings.json"
+        event = {"tool_name": "Write", "cwd": str(self.parent),
+                 "tool_input": {"file_path": str(target), "content": "{oops"}}
+        self.assertEqual(self.hook(event)["permissionDecision"], "deny")
+        event["tool_input"]["file_path"] = str(self.forged / "projects" / "app" / "settings.json")
+        self.assertIsNone(self.hook(event))
 
 
 class ReadTest(unittest.TestCase):

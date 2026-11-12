@@ -12,11 +12,18 @@ Keep this module and those two files in step.
 - `check_instruction_paths(data)`: the separate existence check.
 - `active_runs(home, session_id)`: the active run files that list a session.
 - `task_dir_from_brief(prompt)`: the `Task directory:` line of a brief.
+- `trusted_task(prompt, cwd)`: that line checked against `find_home(cwd)`,
+  or against the home that the project's own repository names
+  (`repo_names_home`).
+- `path_key`, `same_path`, `is_inside`: path checks that resolve symlinks and
+  ignore case on case-insensitive file systems.
+- `brief_line(prompt, label)`: a standalone `<label>: <value>` line.
 """
 
 import json
 import os
 import re
+import unicodedata
 from datetime import datetime
 
 HOME_ENV = "SUBAGENT_ORCHESTRATOR_HOME"
@@ -120,14 +127,80 @@ def find_home(cwd):
     return expand(DEFAULT_HOME)
 
 
+def _case_insensitive(path):
+    """True when the file system that holds `path` ignores letter case,
+    tested on the nearest existing component that has letters."""
+    current = path
+    while True:
+        name = os.path.basename(current)
+        if name and name.lower() != name.upper() and os.path.exists(current):
+            variant = os.path.join(os.path.dirname(current), name.swapcase())
+            try:
+                return os.path.exists(variant) and os.path.samefile(current, variant)
+            except OSError:
+                return False
+        parent = os.path.dirname(current)
+        if parent == current:
+            return False
+        current = parent
+
+
+def path_key(path, cwd=None):
+    """Comparable form of `path`: `~` expanded, joined to `cwd` when relative,
+    symlinks resolved, case folded on a case-insensitive file system."""
+    path = os.path.expanduser(path)
+    if cwd and not os.path.isabs(path):
+        path = os.path.join(cwd, path)
+    real = os.path.realpath(os.path.abspath(path))
+    return os.path.normcase(real).casefold() if _case_insensitive(real) else real
+
+
+def same_path(a, b):
+    return path_key(a) == path_key(b)
+
+
+def is_inside(path, directory, cwd=None):
+    """True when `path` is `directory` or below it (both through path_key)."""
+    path, directory = path_key(path, cwd), path_key(directory)
+    return path == directory or path.startswith(directory.rstrip(os.sep) + os.sep)
+
+
 def project_key(repo):
     """Name of the main checkout directory in lowercase kebab-case."""
     name = os.path.basename(os.path.normpath(repo)).lower()
     return re.sub(r"[^a-z0-9]+", "-", name).strip("-") or "project"
 
 
-def _same_path(a, b):
-    return os.path.realpath(expand(a)) == os.path.realpath(expand(b))
+def repo_names_home(project, repo=None):
+    """True when the repository of `project` (`<home>/projects/<key>`) names
+    that home: `repo` (default: the `repo` of the project's settings file) is
+    a main checkout, the project key fits it, and `find_home(repo)` is the
+    home. A brief alone cannot satisfy this: the repository's CLAUDE.md (or
+    `$SUBAGENT_ORCHESTRATOR_HOME`) must name the home."""
+    home = os.path.dirname(os.path.dirname(project))
+    if repo is None:
+        data, error = _parse(settings_path(project))
+        repo = data.get("repo") if not error and isinstance(data, dict) else None
+    if not isinstance(repo, str) or not repo.startswith("/"):
+        return False
+    key = re.escape(project_key(repo))
+    if not re.fullmatch(key + r"(-[0-9]+)?", os.path.basename(project)):
+        return False
+    checkout = main_checkout(repo)
+    return bool(checkout) and same_path(checkout, repo) and same_path(find_home(repo), home)
+
+
+def trusted_task(prompt, cwd):
+    """`(task, home)`: the brief's task directory (or None) and the trusted
+    home `find_home(cwd)`. `task["trusted"]` is True when the brief's home is
+    that home, or when the project's repository names the brief's home
+    (`repo_names_home`). So a brief cannot point the hooks at a home of its
+    own choice."""
+    home = find_home(cwd)
+    task = task_dir_from_brief(prompt)
+    if task is not None:
+        task["trusted"] = same_path(task["home"], home) or repo_names_home(task["project_dir"])
+    return task, home
 
 
 def project_dir(home, repo):
@@ -152,7 +225,7 @@ def project_dir(home, repo):
             stored = data.get("repo") if isinstance(data, dict) else None
             if not isinstance(stored, str) or not stored:
                 return None, f"{settings}: no string 'repo'"
-            if _same_path(stored, repo):
+            if same_path(stored, repo):
                 return candidate, None
         suffix += 1
 
@@ -191,6 +264,27 @@ def load_settings(project):
 
 def _is_text(value):
     return isinstance(value, str) and value.strip() != ""
+
+
+def _is_language(value):
+    """One line of at most 40 letters, spaces, hyphens and parentheses.
+
+    Combining marks (Unicode category M*) count as part of a letter: vowel
+    signs in Indic scripts, or a decomposed accent as in an NFD "Français".
+    """
+    return (
+        _is_text(value)
+        and len(value) <= 40
+        and all(
+            c.isalpha() or c in " -()" or unicodedata.category(c).startswith("M")
+            for c in value
+        )
+    )
+
+
+def _short(value):
+    text = repr(value)
+    return text if len(text) <= 60 else text[:57] + "..."
 
 
 def _exact_keys(obj, keys, where, errors):
@@ -236,8 +330,11 @@ def validate_settings(data):
         _validate_roles_off(data["roles_off"], errors)
     if "custom_roles" in data:
         _validate_custom_roles(data["custom_roles"], errors)
-    if "chat_language" in data and not _is_text(data["chat_language"]):
-        errors.append("chat_language: a non-empty language name is required")
+    if "chat_language" in data and not _is_language(data["chat_language"]):
+        errors.append(
+            "chat_language: a language name of at most 40 characters (letters, spaces, "
+            f"hyphens, parentheses) is required, not {_short(data['chat_language'])}"
+        )
     if "saved" in data:
         saved = data["saved"]
         valid = isinstance(saved, str) and DATE.match(saved)
@@ -410,6 +507,14 @@ def active_runs(home, session_id=None):
                 run["project"] = key
                 found.append(run)
     return found
+
+
+def brief_line(prompt, label):
+    """The value of the first standalone `<label>: <value>` line (optional
+    `- `/`* ` bullet and backticks), or None."""
+    pattern = r"^[ \t]*(?:[-*][ \t]+)?" + re.escape(label) + r":[ \t]*`?([^`\n]*?)`?[ \t]*$"
+    match = re.search(pattern, prompt or "", re.MULTILINE)
+    return match.group(1).strip() or None if match else None
 
 
 def task_dir_line(prompt):

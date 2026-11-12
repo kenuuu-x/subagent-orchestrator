@@ -6,6 +6,21 @@ Write everything it needs into the brief. Rules for every brief:
 - Start with two lines: `Task directory: <absolute path>` (always
   `<home>/projects/<project-key>/tasks/<task-id>`; the hook denies a call
   without it, for every `orchestrator:*` agent) and `Task: <id>, <one-line goal>`.
+- A brief for a subagent that writes in a worktree (every implementer, every
+  tester, every writing custom role) also carries the standalone line
+  `Worktree: <absolute path>`, on a line of its own. The hook denies the call
+  without it, and while another unfinished subagent of this session works in
+  the same worktree. Start one writer per message: the hook does not see a
+  writer started in the same message.
+- The task directory must lie in the hook's work home. The hooks find the home
+  from the session's working directory; a `CLAUDE.md` home line works only for
+  a session started inside that repository, or when the repository recorded
+  in that project's `settings.json` names that home in its `CLAUDE.md` (for
+  example a session started in the folder above the repository). Otherwise,
+  and for a run over
+  repositories with different homes, set `$SUBAGENT_ORCHESTRATOR_HOME`. The
+  hook denies an `orchestrator:*` call whose `Task directory:` is in another
+  home.
 - Always absolute paths. Expand `~`. Plugin files: build them from the plugin
   root recorded in your run file, for example
   `<plugin root>/skills/code-review/SKILL.md`.
@@ -19,12 +34,12 @@ Write everything it needs into the brief. Rules for every brief:
 |---|---|
 | Scout `orchestrator:scout` | Task (id, goal, acceptance criteria); absolute repo path; areas or questions to look at; output path `<task dir>/research.md` |
 | Planner `orchestrator:planner` | Task and the human's decisions; absolute repo path; path to `research.md` if there is one, and the `custom-<name>-N.md` files of `research` roles; the absolute path of `<home>/projects/<project-key>/settings.json` (it builds the task's role table from it); confirmed base branch; output path `<task dir>/01-plan.md`; reminder: class with signal and file, role/model table, steps, files, checks from the repo, risks, estimated diff size, `Hard part: <files>` if any |
-| Implementer `orchestrator:implementer` | Path to `01-plan.md`; absolute worktree path and branch; pass number N; goal of the pass (see "Pass goals"); for `review fixes` the paths to `review-<N-1>.md` and `visual-<N-1>.md` (with no code host also `remarks-<N-1>.md`; also each `custom-<name>-<N-1>.md` that holds a `REQUEST CHANGES`); for the `opus` implementer the standalone line `Complexity: hard` or `Hard part: <files>` copied from `01-plan.md` (only the opus brief carries `Hard part:`); for the main `sonnet` implementer, when the plan has a hard part, the standalone line `Skip (separate opus pass): <files>` (same files): it must not change them; the exact check commands (from the plan); output path `<task dir>/changes-N.md`; extras per goal below |
+| Implementer `orchestrator:implementer` | Path to `01-plan.md`; the standalone line `Worktree: <absolute path>` and the branch; pass number N; goal of the pass (see "Pass goals"); for `review fixes` the paths to `review-<N-1>.md` and `visual-<N-1>.md` (with no code host also `remarks-<N-1>.md`; also each `custom-<name>-<N-1>.md` that holds a `REQUEST CHANGES`); for the `opus` implementer the standalone line `Complexity: hard` or `Hard part: <files>` copied from `01-plan.md` (only the opus brief carries `Hard part:`); for the main `sonnet` implementer, when the plan has a hard part, the standalone line `Skip (separate opus pass): <files>` (same files): it must not change them; the exact check commands (from the plan); output path `<task dir>/changes-N.md`; extras per goal below |
 | Reviewer `orchestrator:reviewer` | Task and acceptance criteria; paths to `01-plan.md`, `changes-N.md`, `<task dir>/state.md`, the settings path (route check), and for every writing custom role of this pass its `custom-<name>-N.md` and its instruction path (change journal and criteria of the same diff), the repository's `AGENTS.md` / `CLAUDE.md`; absolute worktree path; absolute path `<plugin root>/skills/code-review/SKILL.md`; pass number N; the check results for the current state of the diff; for a re-review the path to the previous `review-<N-1>.md` and "check only the fixes and the previous findings"; reminder: first line is the verdict, read-only, report comes back as the answer |
-| Custom role, read-only (`writes: false`) | Absolute path of its instruction file (`instructions` in the settings); the inputs of its phase: the task, `research.md` (`research`), `01-plan.md` (`plan`), the worktree path, `changes-N.md` and the `custom-<name>-N.md` journals of the writing roles (`review`, `publish`); output path `<task dir>/custom-<name>-N.md`; "read-only, write nothing else"; for `review` and `publish` the verdict-line rule of the reviewer brief and, on a re-review, the previous file |
+| Custom role, read-only (`writes: false`) | Absolute path of its instruction file (`instructions` in the settings); the inputs of its phase: the task, `research.md` (`research`), `01-plan.md` (`plan`), the worktree path, `changes-N.md` and the `custom-<name>-N.md` journals of the writing roles (`review`, `publish`); output path `<task dir>/custom-<name>-N.md`; "read-only, write nothing else" (the hook denies its writes outside `<task dir>`); for `review` and `publish` the verdict-line rule of the reviewer brief and, on a re-review, the previous file |
 | Custom role, writing (`writes: true`) | The standalone line `Worktree: <absolute path>`; paths of `01-plan.md`, `changes-N.md` and the instruction file; the exact check commands; output path `<task dir>/custom-<name>-N.md` (change journal, sections of `changes-N.md`); "no commit, no other worktree"; it starts only after the implementer pass has finished |
 | Visual-checker `orchestrator:visual-checker` | Task directory; pass number N; path to `changes-N.md` (its screenshot list); paths to reference images if any; output path `<task dir>/visual-N.md` |
-| Tester `orchestrator:tester` | Acceptance criteria; paths to `01-plan.md` and `changes-N.md`; absolute worktree path; pass number N; the tester reads files with Read, Glob and Grep (it has no Bash), so no pasted diff; the project's test framework and an existing test as a pattern; output path `<task dir>/test-N.md` |
+| Tester `orchestrator:tester` | Acceptance criteria; paths to `01-plan.md` and `changes-N.md`; the standalone line `Worktree: <absolute path>`; pass number N; the tester reads files with Read, Glob and Grep (it has no Bash), so no pasted diff; the project's test framework and an existing test as a pattern; output path `<task dir>/test-N.md` |
 | Test runner (`general-purpose`, `haiku`) | Exact command to run; absolute worktree path; output path `<task dir>/logs/<name>.log`; "report pass or fail and the first error, nothing else" |
 | Mechanics (`general-purpose`, `haiku`) | One exact action (for example `git -C <worktree> merge <base>` with no conflicts expected, or one exact command or tracker operation from an adapter, with the absolute path of that adapter); stop and report on any unexpected output |
 

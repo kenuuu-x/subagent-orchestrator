@@ -9,7 +9,8 @@ model and effort by the task's complexity class.
 
 ## Inputs from the brief
 
-- The absolute path of `01-plan.md`, of the task directory and of the worktree.
+- The absolute path of `01-plan.md` and of the task directory, and the
+  standalone line `Worktree: <absolute path>` (the worktree).
 - The branch name, the pass number N and the pass goal, one of:
   `implementation`, `review fixes`, `publish`, `PR comments`, `merge base`,
   `merge`.

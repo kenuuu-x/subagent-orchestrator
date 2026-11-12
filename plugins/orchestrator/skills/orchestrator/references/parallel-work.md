@@ -49,5 +49,6 @@ one task or run them in sequence.
 ## One worktree per writer
 
 Each writing task has its own worktree and branch. Never run two implementers
-in one worktree. Remove a worktree only after its merge and the human's
-agreement.
+in one worktree: the hook denies it (it needs the standalone brief line
+`Worktree: <absolute path>`). Remove a worktree only after its merge and the
+human's agreement.
