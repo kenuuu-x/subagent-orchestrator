@@ -23,7 +23,8 @@ References (read them at start-up):
 - [task-files.md](references/task-files.md) — project and task directories, `state.md`, your run file.
 
 Other skills: [code-review](../code-review/SKILL.md), [pull-request](../pull-request/SKILL.md).
-No code host: [adapters/host-none.md](references/adapters/host-none.md).
+Adapters for the tracker and the code host: [adapters/index.md](references/adapters/index.md).
+Read the chosen adapters when the first task needs them.
 
 ## Start-up
 
@@ -44,20 +45,32 @@ No code host: [adapters/host-none.md](references/adapters/host-none.md).
    them and ask which to resume or whether to start a new run; never resume
    silently. A legacy 0.1.0 home: follow the legacy rule in task-files.md.
 6. Per task, confirm with the human: repository, base branch, task id.
+7. Adapters: choose the code-host adapter and, per task, the tracker adapter
+   as [adapters/index.md](references/adapters/index.md) says (code host from
+   the `origin` URL, tracker from the form of the task). Record both in your run
+   file. Subagents cannot open relative plugin links, so each brief carries the
+   absolute path of its adapter.
 
 ## Intake
 
 For each requested task record: goal, acceptance criteria, repository, base
 branch (human-confirmed), links.
 
-- `#123` is a GitHub issue. Read it with `gh issue view 123 --comments`. Task
+- `#123` is a GitHub issue. Read it with the tracker adapter
+  ([tracker-github-issues.md](references/adapters/tracker-github-issues.md)). Task
   id: `gh-123`.
+- A key like `ABC-123` is an issue of the human's tracker: ask which tracker it
+  is and read it through the MCP adapter (see adapters/index.md). Task id:
+  `abc-123`.
 - Free text is a task description. Pick a short kebab-case slug as task id and
   confirm it with the human. Task ids per project: see task-files.md.
 - Missing or contradictory acceptance criteria: ask. Do not invent them.
-- No `gh`, no remote or no login: continue; `publish` is a local commit and
-  `merge` a local merge ([host-none.md](references/adapters/host-none.md)).
-  Tell the human once.
+- No remote, or no login for the host's CLI: continue; `publish` is a local
+  commit and `merge` a local merge
+  ([host-none.md](references/adapters/host-none.md)). Tell the human once.
+- A tracker is written to (status, comment) only when the human asked for it.
+  Status changes and comments go to a `general-purpose` `haiku` mechanics
+  subagent, one exact action per call; you write the comment text yourself.
 
 Create the task directory and `state.md` (with `Run: <project-key>/<run-id>`) per [task-files.md](references/task-files.md).
 
@@ -97,7 +110,8 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
    `haiku` subagent, or an implementer pass `review fixes` if they fail), then
    a focused re-review before `publish`.
 9. Publish: after a clean review and green checks, run the PR size check, then a
-   new implementer with goal `publish` follows [pull-request](../pull-request/SKILL.md).
+   new implementer with goal `publish` follows [pull-request](../pull-request/SKILL.md)
+   and the code-host adapter.
 10. "Done reviewing" from the human: a new implementer, goal `PR comments`,
     fixes the human's unresolved review threads and leaves the diff
     uncommitted. With no code host the remarks come in chat: save them

@@ -1,13 +1,13 @@
 # Code host: none (local commits only)
 
-Use this when the repository has no remote, `gh` is missing or not logged in,
-or the human says there is no code host. Everything stays in local git. Do not
-try other hosting.
+Use this when the repository has no remote, the CLI of its host (`gh` for
+GitHub, `glab` for GitLab) is missing or not logged in, or the human says there
+is no code host. Everything stays in local git. Do not try other hosting.
 
 ## Check access
 
-`git remote -v` prints nothing, or `gh auth status` fails. Tell the human once
-that the flow is local. In `state.md` the line `PR:` is `local`.
+`git remote -v` prints nothing, or the host CLI's `auth status` fails. Tell the
+human once that the flow is local. In `state.md` the line `PR:` is `local`.
 
 ## Find or open
 
@@ -58,8 +58,11 @@ branch and its confirmed base. Merge the task branch into the base locally:
 5. Method: the one the human or the repository names, else
    `git merge --no-ff --no-commit`.
 6. Run the plan's checks on the merged, uncommitted result. Green: commit the
-   merge. Red, or conflicts: `git merge --abort` and report; the orchestrator
-   then runs a `merge base` pass and tries again.
+   merge. Conflicts: `git merge --abort`, report the conflicted files; the
+   orchestrator then runs a `merge base` pass and tries the merge again. Red
+   checks without conflicts: `git merge --abort`, report the failing checks;
+   the orchestrator tells the human and does not retry, because a `merge base`
+   pass cannot fix them.
 7. If step 4 switched the task worktree, switch it back to the task branch
    after the commit or after the abort, before you report. The task worktree
    never stays on the base.

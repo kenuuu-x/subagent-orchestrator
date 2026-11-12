@@ -11,7 +11,10 @@ Fails when:
 - a user-facing marker (home override line, pass goal, verdict line) is spelled
   differently from the spec;
 - a stale work-home path from 0.1.0 appears anywhere;
-- the implementer description does not name all six pass goals.
+- the implementer description does not name all six pass goals;
+- a tracker or code-host adapter is missing or lacks one of its fixed headings;
+- an integration name (a code host or tracker product) appears outside the
+  adapters and the README.
 """
 
 import json
@@ -23,12 +26,29 @@ ROOT = Path(__file__).resolve().parent.parent
 PLUGIN = ROOT / "plugins" / "orchestrator"
 
 FORBIDDEN = re.compile(
-    r"locali|localiapp|\bpult\b|opsbot|yandex|gitlab|\bglab\b|gradle|android|\bios\b"
+    r"locali|localiapp|\bpult\b|opsbot|yandex(?![ -]tracker)|gradle|android|\bios\b"
     r"|maestro|emulator|figma|studioprojects|build-lock|work-slot|[а-яё]",
     re.IGNORECASE,
 )
+# Integration names are product features, not company words: the adapters and
+# the README may name them. Any other file (the generic flow text) may not.
+INTEGRATION = re.compile(r"gitlab|\bglab\b|yandex[ -]tracker", re.IGNORECASE)
+REFS = PLUGIN / "skills" / "orchestrator" / "references"
+ADAPTERS = REFS / "adapters"
+INTEGRATION_ALLOWED = {ROOT / "README.md"}
 # The spec and this test list the forbidden words on purpose.
 FORBIDDEN_SKIP = {ROOT / "docs" / "spec.md", Path(__file__).resolve()}
+
+TRACKER_ADAPTERS = (
+    "tracker-github-issues", "tracker-mcp", "tracker-jira", "tracker-linear",
+    "tracker-yandex-tracker", "tracker-other",
+)
+TRACKER_HEADINGS = ("Read a task", "Task id", "Change status", "Comment", "Link a pull request")
+HOST_ADAPTERS = ("host-github", "host-gitlab", "host-none")
+HOST_HEADINGS = (
+    "Check access", "Find or open", "Review threads", "Reply and resolve",
+    "Checks and approval", "Merge",
+)
 
 # Work-home paths of 0.1.0. The layout is per project now, so they must not
 # come back. This test is the only file that spells them out.
@@ -77,6 +97,22 @@ def check_forbidden():
             match = FORBIDDEN.search(line)
             if match:
                 fail(path, f"line {number}: forbidden word {match.group(0)!r}")
+            match = INTEGRATION.search(line)
+            if match and path not in INTEGRATION_ALLOWED and ADAPTERS not in path.parents:
+                fail(path, f"line {number}: integration name {match.group(0)!r} outside the adapters")
+
+
+def check_adapters():
+    for names, headings in ((TRACKER_ADAPTERS, TRACKER_HEADINGS), (HOST_ADAPTERS, HOST_HEADINGS)):
+        for name in names:
+            path = ADAPTERS / f"{name}.md"
+            if not path.is_file():
+                fail(path, "adapter missing")
+                continue
+            lines = {line.strip() for line in path.read_text(encoding="utf-8").splitlines()}
+            for heading in headings:
+                if f"## {heading}" not in lines:
+                    fail(path, f"missing heading '## {heading}'")
 
 
 def check_stale_paths():
@@ -219,6 +255,7 @@ def check_markers():
 def main():
     check_forbidden()
     check_stale_paths()
+    check_adapters()
     agents = check_frontmatter()
     check_implementer_description()
     check_links_and_refs(agents)
