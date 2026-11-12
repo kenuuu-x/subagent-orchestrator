@@ -11,22 +11,35 @@ rules. Every file in the plugin must agree with it.
 ## Hard constraints
 
 - English everywhere in the plugin (skills, agents, commands, README, tests).
-- Fully generic: no company, product, tracker or platform names. Never write
-  any of: `locali`, `LOCALIAPP`, `pult`, `OPSBOT`, `Yandex`, `Tracker` (as a
-  product), `GitLab`, `glab`, `Gradle`, `Android`, `iOS`, `Maestro`,
-  `emulator`, `Figma`, `libs` (as a product), `StudioProjects`, `.locali-handoff`,
-  `build-lock`, `work-slot`, `emulator-lock`, Cyrillic text. The contract test
-  fails on these words.
+- Generic: no company, product or platform names. Never write any of:
+  `locali`, `LOCALIAPP`, `pult`, `OPSBOT`, bare `Yandex` (only the integration
+  name `Yandex Tracker` is allowed), `Gradle`, `Android`, `iOS`, `Maestro`,
+  `emulator`, `Figma`, `libs` (as a product), `StudioProjects`,
+  `.locali-handoff`, `build-lock`, `work-slot`, `emulator-lock`, Cyrillic text.
+  The contract test fails on these words.
+- Integration names (`GitLab`, `glab`, `Yandex Tracker`) are product features,
+  not company words. They are allowed only in the adapter files under
+  `references/adapters/` and in `README.md` (and in this spec and the test,
+  which list them on purpose). Anywhere else in the generic flow text they fail
+  the contract test.
 - Stack-agnostic: build, test and lint commands come from the target
   repository (`AGENTS.md`, `CLAUDE.md`, `README`, `package.json`, `Makefile`,
   `pyproject.toml`, CI config). Examples may name several ecosystems side by
   side (`npm test`, `pytest`, `cargo test`, `./gradlew test`) only as a list of
   examples — prefer no examples at all.
-- Code hosting: GitHub through the `gh` CLI. Works without a remote too: then
-  `publish` is a local commit, the human's remarks come in chat, and `merge` is
-  a local merge (`host-none.md`).
-- Issue tracking is optional: a task is either a GitHub issue (`#123`) or a
-  free-text description.
+- Code hosting and issue tracking go through adapters, one short file per
+  integration with fixed headings (contract-tested). The flow text and the
+  `pull-request` skill are host-neutral: every host command lives in the host
+  adapter, whose absolute path the brief carries.
+  - Code hosts: GitHub (`gh`), GitLab (`glab`), or none. With no remote, or no
+    login for the host's CLI, `publish` is a local commit, the human's remarks
+    come in chat and `merge` is a local merge (`host-none.md`).
+  - Trackers are optional. GitHub Issues uses `gh`. Every other tracker (Jira,
+    Linear, Yandex Tracker, other) goes through the human's own MCP server. The
+    adapters describe operations, never MCP tool names, and the plugin never
+    stores a token, a password or a URL with credentials.
+  - A task is an issue (`#123`, or a key such as `ABC-123`) or a free-text
+    description.
 - Only one mode: subagents inside one orchestrator session. No background
   sessions, no worker scripts, no external dashboards.
 - Model names are aliases only: `opus`, `sonnet`, `haiku` (no version numbers).
@@ -48,9 +61,18 @@ plugins/orchestrator/
     briefs.md                            what each subagent brief must contain
     parallel-work.md                     when tasks may run in parallel
     task-files.md                        project, run and task layout, state.md and run-file templates
+    adapters/index.md                    which adapter to use and how to choose it
+    adapters/host-github.md              code host GitHub: gh and GraphQL commands
+    adapters/host-gitlab.md              code host GitLab: glab and API commands
     adapters/host-none.md                no code host: local commit, remarks, stacked tasks, local merge
+    adapters/tracker-github-issues.md    tracker GitHub Issues (gh)
+    adapters/tracker-mcp.md              shared rules for every tracker reached through MCP
+    adapters/tracker-jira.md             tracker Jira, through MCP
+    adapters/tracker-linear.md           tracker Linear, through MCP
+    adapters/tracker-yandex-tracker.md   tracker Yandex Tracker, through MCP
+    adapters/tracker-other.md            any other tracker, through MCP
   skills/code-review/SKILL.md            review procedure + report format (read-only; disable-model-invocation: true)
-  skills/pull-request/SKILL.md           commit, push, PR, PR comment loop, merge on request (disable-model-invocation: true)
+  skills/pull-request/SKILL.md           host-neutral: commit, push, PR, PR comment loop, merge on request (disable-model-invocation: true)
   agents/scout.md
   agents/planner.md
   agents/implementer.md
@@ -130,11 +152,41 @@ built-in `general-purpose` type.
   `<type>/<task-id>` where type is `feat`, `fix`, `refactor`, `docs`, `chore`
   (follow the repository's own convention if it has one).
 
+## Adapters
+
+Host adapters have the headings `## Check access`, `## Find or open`,
+`## Review threads`, `## Reply and resolve`, `## Checks and approval`,
+`## Merge`. Tracker adapters have `## Read a task`, `## Task id`,
+`## Change status`, `## Comment`, `## Link a pull request`. The contract test
+requires every adapter file and every heading.
+
+- Host adapters: `host-github.md` (the `gh` and GraphQL commands), `host-gitlab.md`
+  (`glab mr` commands, `glab api` for discussions, `resolved=true` to resolve a
+  thread), `host-none.md` (local flow).
+- Tracker adapters: `tracker-github-issues.md`, `tracker-mcp.md` (shared rules),
+  `tracker-jira.md`, `tracker-linear.md`, `tracker-yandex-tracker.md`,
+  `tracker-other.md`.
+- Choice at intake (`adapters/index.md`): the host from the `origin` URL (a
+  GitHub host, a GitLab host, else none or ask); the tracker from the form of
+  the task (`#123` on a GitHub host is GitHub Issues; `ABC-123` makes the
+  orchestrator ask which tracker, then it uses the MCP adapter; free text has
+  no tracker). It records both in the run file.
+- Who does what: the orchestrator reads tasks itself. Status changes and
+  comments go to a `general-purpose` `haiku` mechanics subagent, one exact
+  action per call, and the orchestrator writes the comment text. The
+  orchestrator writes to a tracker only when the human asked for it, with the
+  status names the human gave. Automation points: the start status when the plan
+  is approved; the review status and a comment with the PR link after
+  `publish`; the done status after `merge`.
+- Briefs: the code-host adapter's absolute path goes into every `publish`,
+  `PR comments` and `merge` brief; the tracker adapter's into a `publish` brief
+  with an issue reference and into a mechanics brief that changes a tracker.
+
 ## Task flow (orchestrator)
 
 1. Intake: for each task record goal, acceptance criteria, repository, base
-   branch (confirmed by the human), links. A GitHub issue is read with
-   `gh issue view`.
+   branch (confirmed by the human), links. An issue is read through the tracker
+   adapter (GitHub Issues: `gh issue view`).
 2. Decompose and build a dependency graph (`parallel-work.md`).
 3. Research: `orchestrator:scout`, read-only. Small tasks skip the scout.
 4. Plan: `orchestrator:planner` writes `01-plan.md` including the complexity
@@ -193,15 +245,20 @@ built-in `general-purpose` type.
     base moves before `publish`, tell the human and keep working on the old
     base.
 14. Merge only when the human explicitly asks: a new implementer with goal
-    `merge` (checks green, approval present, `gh pr merge` with the
-    repository's merge method, then report). With no code host it merges the
-    task branch into its confirmed base locally (`host-none.md`): in the
+    `merge` (checks green, approval present, the host adapter's merge command
+    with the repository's merge method, then report; with no method named it
+    stops and reports). With no code host it
+    merges the task branch into its confirmed base locally (`host-none.md`): in the
     worktree where the base is checked out, never stash a dirty one, `--no-ff
     --no-commit` unless the human or repository names a method, the plan's
-    checks on the result, commit only when green, else `git merge --abort`;
-    the task worktree is switched back to the task branch if it was used. The
-    local merge commit is the one commit a `merge` pass may make. After the merge the orchestrator
-    removes the task worktree if the human agrees; the branch stays.
+    checks on the result, commit only when green. Conflicts: `git merge
+    --abort`, report, and the orchestrator runs a `merge base` pass and tries
+    again. Red checks without conflicts: `git merge --abort`, report the
+    failing checks; the orchestrator tells the human and does not retry. The
+    task worktree is switched back to the task branch if it was used. The
+    local merge commit is the one commit a `merge` pass may make. After the
+    merge the orchestrator removes the task worktree if the human agrees; the
+    branch stays.
 
 The orchestrator never edits code, never commits and never opens a PR itself.
 The only git it runs itself is mechanics that touch no code: `git fetch`,
@@ -340,24 +397,27 @@ Write/Edit) and notes into `test-N.md`; it never runs anything.
   `REQUEST CHANGES (<n> findings)`, `BLOCKED (<n> findings): <reason>`), each
   finding with file:line, why it matters and a concrete fix. Re-review checks
   only the fixes and the previous findings.
-- `pull-request` (~110 lines): preconditions (clean review, green checks,
-  size check), commit message convention (repo's own, else Conventional
-  Commits, include issue reference `#123` when there is one), push, `gh pr
-  create` with a description template (what, why, how to verify, risks,
-  linked issue, "Known minor findings"), no remote → stop after commit and
-  report. PR comment loop: `gh api` to list unresolved review threads by the
-  human, fix valid ones and leave the diff uncommitted, reply only when a
-  comment is invalid (explain why); other people's comments are not touched but
-  listed in the report. After the re-review, the `publish` goal commits, pushes
-  and resolves the fixed threads. Merge only on the human's explicit request
-  (goal `merge`), after green checks and approval. A subagent never waits for
-  the human: it lists open points in its report and finishes.
+- `pull-request` (~110 lines): host-neutral. The brief carries the absolute
+  path of the code-host adapter, which holds every host command. Preconditions
+  (clean review, green checks, size check), commit message convention (repo's
+  own, else Conventional Commits, with the issue reference in the form the
+  tracker adapter gives), push, create the PR with a description template (what,
+  why, how to verify, risks, linked issue, "Known minor findings"), no remote
+  or no login → host-none adapter, stop after the commit and report. PR comment
+  loop: list unresolved review threads by the human (adapter), fix valid ones
+  and leave the diff uncommitted, reply only when a comment is invalid (explain
+  why); other people's comments are not touched but listed in the report. After
+  the re-review, the `publish` goal commits, pushes and resolves the fixed
+  threads. Merge only on the human's explicit request (goal `merge`), after
+  green checks and approval. A subagent never waits for the human: it lists
+  open points in its report and finishes.
 
 ## README
 
 Sections: what it is (2–3 sentences), install
 (`/plugin marketplace add kenuuu-x/subagent-orchestrator`,
 `/plugin install orchestrator@subagent-orchestrator`), requirements (Claude
-Code, git, optional `gh` logged in), quick start example, how a task flows
-(short list), roles and models table, complexity class, files it creates,
+Code, git, optional host CLI logged in and optional tracker MCP server), quick
+start example, how a task flows (short list), roles and models table,
+complexity class, integrations (adapters), files it creates,
 customising (home dir, per-project rules in `CLAUDE.md`), limitations, license.

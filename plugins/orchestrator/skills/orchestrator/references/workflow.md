@@ -9,6 +9,21 @@ Lifecycle of one task. Run it per task; several tasks may run in parallel per
 `fixes` → `publish` → `pr-review` → `merging` → `done`. Write the phase to `state.md` on
 every change.
 
+## Adapters
+
+Everything that depends on the code host or the tracker lives in
+[adapters/](adapters/index.md). Choose them at intake as index.md says, and
+put the absolute path of the adapter in each brief that needs it
+([briefs.md](briefs.md), "Adapters in the brief"). A host is a hosting service
+or none (local commits). A tracker is GitHub Issues or the human's MCP server.
+
+Tracker automation points, only when the human asked for them and gave the
+status names: the start status when the plan is approved; the review status and
+a comment with the PR link after `publish`; the done status after `merge`.
+Each is one exact action for a `general-purpose` `haiku` mechanics subagent,
+with the text written by you. A refused write is reported to the human, not
+retried.
+
 ## Base branch confirmation
 
 Before any branch or worktree, per task:
@@ -110,16 +125,19 @@ Nothing reaches the PR branch before step 3.
   `haiku` mechanics subagent runs the merge. With conflicts: a new implementer,
   goal `merge base`. Re-review a conflict resolution before the next push.
 - Merge: only when the human explicitly asks. Set the phase `merging`. New
-  implementer, goal `merge`: checks green, approval present, `gh pr merge` with
-  the repository's merge method, then it reports.
+  implementer, goal `merge`: checks green, approval present, the code-host
+  adapter's merge command with the repository's merge method, then it reports.
 - No code host: there is no PR. Goal `merge` merges the task branch into its
   confirmed base locally, as described in
   [adapters/host-none.md](adapters/host-none.md): find where the base is
   checked out, merge in a clean worktree (never stash a dirty one), method the
   human or repository names else `--no-ff --no-commit`, the plan's checks on
-  the result, commit only when green, else `git merge --abort` (then a `merge base` pass for conflicts);
-  switch the task worktree back to the task branch. Then remove the worktree
-  if the human agrees.
+  the result, commit only when green; switch the task worktree back to the
+  task branch. Then remove the worktree if the human agrees. When the merge is
+  aborted (`git merge --abort`):
+  - conflicts: run a `merge base` pass, then try the merge again;
+  - red checks without conflicts: tell the human which checks failed and do not
+    retry; a `merge base` pass cannot fix them.
 
 ## PR size check
 

@@ -6,8 +6,12 @@ disable-model-invocation: true
 
 # Pull request
 
-Work with `git` and the `gh` CLI. Build the PR only from the proven scope of
-the task. Work in the task worktree and branch.
+Work with `git` and the code-host adapter. The brief carries the adapter's
+absolute path (a `host-*.md` file under
+`skills/orchestrator/references/adapters/`). Read it first with the Read tool: it holds every host command, under the
+headings Check access, Find or open, Review threads, Reply and resolve, Checks
+and approval and Merge. This skill names the step; the adapter gives the
+command. Build the PR only from the proven scope of the task. Work in the task worktree and branch.
 
 ## Modes
 
@@ -37,12 +41,12 @@ All must hold. If not, stop and report which one failed.
 
 ## Remote and tools
 
-- `git remote -v` and `gh auth status`. No remote, or `gh` missing or not logged
-  in: there is no code host. Follow the host-none adapter (absolute path in the
-  brief; file `adapters/host-none.md` under the orchestrator references): commit
-  locally and stop. Report the branch, the SHA and the reason you did not push.
-  Do not try other hosting.
-- Find an existing PR for the branch first: `gh pr list --head <branch> --json number,url`.
+- Adapter section "Check access". No remote, or the host's CLI missing or not
+  logged in: there is no code host. Follow the host-none adapter (file
+  `adapters/host-none.md` in the same folder): commit locally and stop. Report
+  the branch, the SHA and the reason you did not push. Do not try other
+  hosting.
+- Adapter section "Find or open": find an existing PR for the branch first.
   Update it instead of creating a duplicate.
 
 ## Commit
@@ -52,20 +56,22 @@ All must hold. If not, stop and report which one failed.
 - Message convention: the repository's own (`AGENTS.md`, `CONTRIBUTING`, last
   15 commit subjects). Without one use Conventional Commits:
   `<type>: <short summary>` where type is `feat`, `fix`, `refactor`, `docs`,
-  `test`, `chore`. Add the issue reference `#123` when the task has one.
+  `test`, `chore`. Add the issue reference when the task has one, in the form
+  the tracker adapter's "Link a pull request" gives (`#123`, `ABC-123`).
 - Atomic commits by meaning, not one per file.
 - Never skip hooks (`--no-verify`) and never amend or force-push a pushed
   branch unless the human asks.
 
 ## Push and create
 
-1. `git push -u origin <branch>`.
-2. `gh pr create --base <base> --head <branch> --title "<title>" --body-file <file>`.
-   Write the body to a file first. Do not add assignees, reviewers, labels,
-   auto-merge or branch deletion unless the repository's rules or the human say so.
+Commands: adapter section "Find or open".
+
+1. Push the branch to `origin`.
+2. Create the PR from the base to the branch, with the description in a file.
+   Do not add assignees, reviewers, labels, auto-merge or branch deletion
+   unless the repository's rules or the human say so.
 3. Title: same form as the commit subject. Several issues: name all of them.
-4. Re-read the PR (`gh pr view <n> --json url,baseRefName,headRefName,commits`)
-   and check base, head, commits and the diff size.
+4. Re-read the PR and check base, head, commits and the diff size.
 5. Return the PR URL, the commits, the checks that actually ran and known limits.
    Say plainly what was not checked.
 
@@ -79,7 +85,8 @@ the diff. Use the repository's PR template if there is one. Otherwise:
 What changed, for the user and for the code.
 
 ## Why
-The problem, and the issue link: `Closes #123` (omit if none).
+The problem, and the issue link in the form the tracker adapter's "Link a pull
+request" gives, for example `Closes #123` (omit if none).
 
 ## How to verify
 Exact commands and steps. Results of the checks with the commit SHA.
@@ -102,34 +109,26 @@ with the remote first. This pass only fixes and leaves the diff uncommitted.
 The orchestrator then runs a focused re-review; only after `APPROVE` does a
 `publish` pass commit, push and resolve the fixed threads (steps 8 to 10).
 
-1. Find the repository and PR: `gh pr view --json number,url,headRepository`.
-2. List review threads with their state:
-
-   ```bash
-   gh api graphql -f query='query($o:String!,$r:String!,$n:Int!){repository(owner:$o,name:$r){pullRequest(number:$n){reviewThreads(first:100){nodes{id isResolved path line comments(first:20){nodes{author{login} body}}}}}}}' -f o=<owner> -f r=<repo> -F n=<number>
-   ```
-
+1. Find the repository and the PR (adapter section "Find or open").
+2. List the review threads with their state (adapter section "Review
+   threads").
 3. Take unresolved threads whose first comment is by the human (the PR author's
-   account in a solo flow). If it is unclear which login is the human's, fix
-   nothing and say so in your report. Comments by other people: do not touch them; list them in your report and
-   finish.
+   account in a solo flow). If it is unclear which account is the human's, fix
+   nothing and say so in your report. Comments by other people: do not touch
+   them; list them in your report and finish.
 4. Unclear comment: do not guess and do not change code for it; list it in your
    report.
 5. Valid comment: fix it. Do not reply in the thread about a fix.
 6. Invalid or inapplicable comment: reply in that thread with the reason, short
-   and concrete. Leave the thread open and list it in your report.
+   and concrete (adapter section "Reply and resolve"). Leave the thread open
+   and list it in your report.
 7. After the fixes run the checks of the touched code and list every thread
    (id, path, fixed, replied or left open) in the journal. Stop here: leave the
    diff uncommitted.
 8. In the `publish` pass after the re-review: commit (convention above) and
    push.
-9. Resolve the fixed threads:
-
-   ```bash
-   gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<threadId>
-   ```
-
-   Leave invalid and unclear threads open.
+9. Resolve the fixed threads (adapter section "Reply and resolve"). Leave
+   invalid and unclear threads open.
 10. Report: threads fixed, replied to, left open and why, and (after the
    `publish` pass) the new commit SHA.
 
@@ -140,9 +139,8 @@ is no PR: follow the host-none adapter, which merges the task branch into its
 confirmed base locally. Otherwise, before it:
 
 1. No unresolved human threads; other people's comments handled.
-2. Required approvals present and checks green: `gh pr checks <n>`,
-   `gh pr view <n> --json reviewDecision,mergeStateStatus`.
-3. Merge with the repository's usual method: `gh pr merge <n>` with the flag
-   the human or repository rules name (`--squash`, `--merge`, `--rebase`). Add
-   no flags of your own.
+2. Required approvals present and checks green (adapter section "Checks and
+   approval").
+3. Merge with the repository's usual method, the one the human or the
+   repository rules name (adapter section "Merge"). Add no flags of your own, except those the adapter names.
 4. Re-read the PR and confirm it is merged. Report to the orchestrator.

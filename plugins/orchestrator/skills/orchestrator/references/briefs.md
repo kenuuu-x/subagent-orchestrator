@@ -23,7 +23,7 @@ Write everything it needs into the brief. Rules for every brief:
 | Visual-checker `orchestrator:visual-checker` | Task directory; pass number N; path to `changes-N.md` (its screenshot list); paths to reference images if any; output path `<task dir>/visual-N.md` |
 | Tester `orchestrator:tester` | Acceptance criteria; paths to `01-plan.md` and `changes-N.md`; absolute worktree path; pass number N; the tester reads files with Read, Glob and Grep (it has no Bash), so no pasted diff; the project's test framework and an existing test as a pattern; output path `<task dir>/test-N.md` |
 | Test runner (`general-purpose`, `haiku`) | Exact command to run; absolute worktree path; output path `<task dir>/logs/<name>.log`; "report pass or fail and the first error, nothing else" |
-| Mechanics (`general-purpose`, `haiku`) | One exact action (for example `git -C <worktree> merge <base>` with no conflicts expected, or an exact `gh` command); stop and report on any unexpected output |
+| Mechanics (`general-purpose`, `haiku`) | One exact action (for example `git -C <worktree> merge <base>` with no conflicts expected, or one exact command or tracker operation from an adapter, with the absolute path of that adapter); stop and report on any unexpected output |
 
 ## Checks in the brief
 
@@ -32,6 +32,19 @@ Write everything it needs into the brief. Rules for every brief:
   `pyproject.toml`, CI config). Never invent a command.
 - Write them as exact lines, one per check, with the directory they run in.
 - Missing check commands: ask the human before the first implementer starts.
+
+## Adapters in the brief
+
+Code-host and tracker commands live in adapters under
+`<plugin root>/skills/orchestrator/references/adapters/`
+([adapters/index.md](adapters/index.md) says how you choose them). A subagent
+cannot guess the adapter, so the brief carries its absolute path:
+
+- the code-host adapter (`host-*.md`) in every `publish`, `PR comments` and
+  `merge` brief, also when it is `host-none.md`;
+- the tracker adapter (`tracker-*.md`) in a `publish` brief when the task has an
+  issue reference, and in any mechanics brief that changes a tracker. A
+  tracker other than GitHub Issues also needs `tracker-mcp.md`.
 
 ## Pass numbers and goals
 
@@ -43,10 +56,10 @@ goal names:
 |---|---|
 | `implementation` | none |
 | `review fixes` | paths to `review-<N-1>.md` and `visual-<N-1>.md`; with no code host also the path to `remarks-<N-1>.md` |
-| `publish` | `<plugin root>/skills/pull-request/SKILL.md`, base branch, issue reference; after PR comments also the ids of the fixed threads; with no code host also `<plugin root>/skills/orchestrator/references/adapters/host-none.md` |
-| `PR comments` | PR URL and the same skill path |
+| `publish` | `<plugin root>/skills/pull-request/SKILL.md`, the code-host adapter path, base branch, issue reference with the tracker adapter path; after PR comments also the ids of the fixed threads |
+| `PR comments` | PR URL, the same skill path and the code-host adapter path |
 | `merge base` | base branch; only after `publish`, on a clean worktree, and only when merging it into the task branch has conflicts (a clean merge is a `general-purpose` `haiku` mechanics subagent) |
-| `merge` | PR URL, the same skill path, the merge method if the human named one; only after the human explicitly asked. With no code host: no PR URL; the task branch, the confirmed base branch, `<plugin root>/skills/orchestrator/references/adapters/host-none.md` and the plan's check commands |
+| `merge` | PR URL, the same skill path, the code-host adapter path, the merge method if the human named one; only after the human explicitly asked. With no code host: no PR URL; the adapter is `<plugin root>/skills/orchestrator/references/adapters/host-none.md`, and the brief adds the task branch, the confirmed base branch and the plan's check commands |
 
 ## Review brief checklist
 

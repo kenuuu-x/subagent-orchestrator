@@ -20,9 +20,13 @@ Restart Claude Code (or run `/reload-plugins`) after installing.
 
 - Claude Code with subagent support (the `Agent` tool).
 - `git` 2.5+ (worktrees).
-- Optional: [GitHub CLI](https://cli.github.com/) logged in (`gh auth login`)
-  for issues and pull requests. Without it the flow stays local: a local
-  commit, and a local merge when you ask for it.
+- Optional: the CLI of your code host, logged in: the
+  [GitHub CLI](https://cli.github.com/) `gh` (`gh auth login`) or the GitLab
+  CLI `glab` (`glab auth login`). It is used for pull requests and, with
+  GitHub, for issues. Without it the flow stays local: a local commit, and a
+  local merge when you ask for it.
+- Optional: an MCP server for your tracker (Jira, Linear, Yandex Tracker or
+  another), added to Claude Code by you. See "Integrations".
 - Python 3 for the plugin's safety hook.
 
 ## Quick start
@@ -33,9 +37,9 @@ Open Claude Code in your repository and run:
 /orchestrator:orchestrate #42 #57 "add a dark theme toggle to settings"
 ```
 
-Tasks can be GitHub issue numbers or plain descriptions. The orchestrator asks
-for the base branch, builds a dependency graph, and runs independent tasks in
-parallel.
+Tasks can be GitHub issue numbers, tracker keys such as `ABC-123`, or plain
+descriptions. The orchestrator asks for the base branch, builds a dependency
+graph, and runs independent tasks in parallel.
 
 ## How a task flows
 
@@ -59,11 +63,11 @@ parallel.
    green checks the implementer commits, pushes and opens the PR; unfixed minor
    findings go into the description. Diffs over 1000 lines are discussed with
    you first.
-8. **Your review.** Comment on the PR on GitHub, then tell the orchestrator
-   you are done. An implementer fixes your comments without committing, a
-   focused re-review checks the fixes, and after `APPROVE` another implementer
-   commits, pushes and resolves the threads. The PR is merged only when you
-   ask.
+8. **Your review.** Comment on the PR on your code host, then tell the
+   orchestrator you are done. An implementer fixes your comments without
+   committing, a focused re-review checks the fixes, and after `APPROVE` another
+   implementer commits, pushes and resolves the threads. The PR is merged only
+   when you ask.
 
 ## Roles and models
 
@@ -95,6 +99,26 @@ used by several consumers. A large but straightforward UI change is medium.
 When only part of a task is hard, the plan names those files as a hard part:
 the main work runs on sonnet and a short separate opus pass handles only those
 files.
+
+## Integrations
+
+Everything that depends on a tracker or a code host lives in one short adapter
+file per integration, in
+`plugins/orchestrator/skills/orchestrator/references/adapters/`. The flow text
+and the pull-request skill stay neutral. The orchestrator picks the adapters
+itself, from the `origin` URL and from the form of the task.
+
+| | Adapter | Chosen when |
+|---|---|---|
+| Code host | GitHub (`gh`) | `origin` is on GitHub |
+| Code host | GitLab (`glab`) | `origin` is on GitLab |
+| Code host | none | no remote, or the host's CLI is missing or not logged in: local commits and a local merge |
+| Tracker | GitHub Issues (`gh`) | the task is `#123` on a GitHub host |
+| Tracker | Jira, Linear, Yandex Tracker or another, through your MCP server | the task is a key such as `ABC-123`; the orchestrator asks which tracker |
+
+The plugin never stores a token or a password: the CLI logins and your MCP
+servers hold them. A tracker is written to (status, comment) only when you ask
+for it.
 
 ## Cost guards
 
@@ -146,9 +170,10 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
   subscription.
 - The session cannot verify which model a subagent actually ran on; the
   orchestrator passes the model explicitly and records it in `state.md`.
-- Pull request support is GitHub only. Without a remote the flow is local: a
-  local commit, your remarks in chat, and a local merge when you ask. A stacked
-  task branches from its predecessor only after the predecessor is published.
+- Pull requests: GitHub and GitLab. Without a remote, or without a login for
+  the host's CLI, the flow is local: a local commit, your remarks in chat, and a
+  local merge when you ask. A stacked task branches from its predecessor only
+  after the predecessor is published.
 
 ## Development
 
@@ -156,7 +181,9 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
 ./scripts/validate.sh
 ```
 
-runs the structural contract and the hook tests.
+runs the structural contract (including the adapter files and their fixed
+headings, and the word ban: integration names are allowed only in the adapters
+and this README) and the hook tests.
 
 ## License
 

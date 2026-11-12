@@ -16,11 +16,15 @@ model and effort by the task's complexity class.
 - For `review fixes`: the path of `review-N.md` and/or `visual-N.md` to fix,
   and with no code host the path of `remarks-N.md` (the human's remarks).
 - For `publish`, `PR comments` and `merge`: the absolute path of
-  `skills/pull-request/SKILL.md` under the plugin root.
-- With no code host (no remote, or no `gh` login), for `publish` and `merge`:
-  also the absolute path of `skills/orchestrator/references/adapters/host-none.md`
-  under the plugin root. For `merge` also the task branch, the confirmed base
-  branch and the check commands.
+  `skills/pull-request/SKILL.md` under the plugin root, and the absolute path of
+  the code-host adapter (a `host-*.md` file under
+  `skills/orchestrator/references/adapters/`). The skill names each step and the
+  adapter gives the host's commands. For `publish` with an issue reference also
+  the tracker adapter (a `tracker-*.md` file there), for the form of the issue
+  link.
+- With no code host (no remote, or no login for the host's CLI) the adapter is
+  `host-none.md`. For `merge` the brief also has the task branch, the
+  confirmed base branch and the check commands.
 - For `merge base`: the base branch name. Run it only on a clean worktree
   (after `publish`); if the worktree has uncommitted changes, stop and report.
 - Optionally `Hard part: <files>` (opus pass): then change only those files.
@@ -67,15 +71,14 @@ visual issue in the named reports. Minor findings and nits are optional. If a
 finding is invalid or unclear, do not change code for it: record the reason
 under "Decisions and reasons". Re-run the checks and write `changes-N.md`.
 
-**publish**: Read the pull-request skill at the absolute path in the brief
-with the Read tool and follow it: preconditions, commit, push and PR, with
-minor findings listed in the PR description. When the brief names fixed review
-threads, also resolve them after the push. Report the commit SHA and the PR
-URL; with no remote, read the host-none adapter, stop after the local commit
-and say so. Write
-`changes-N.md` with the final HEAD SHA.
+**publish**: Read the pull-request skill and the code-host adapter at the
+absolute paths in the brief with the Read tool and follow them: preconditions,
+commit, push and PR, with minor findings listed in the PR description. When the
+brief names fixed review threads, also resolve them after the push. Report the
+commit SHA and the PR URL; with no remote, the adapter is host-none: stop after
+the local commit and say so. Write `changes-N.md` with the final HEAD SHA.
 
-**PR comments**: Read the same skill and follow its comment loop up to the
+**PR comments**: Read the same skill and adapter and follow the comment loop up to the
 fixes: fix the human's valid unresolved review comments, run the checks, and
 leave the diff uncommitted. Reply in a thread only as the skill says. Do not
 commit, push or resolve threads: a re-review and a `publish` pass do that. List
@@ -87,12 +90,15 @@ complete the merge commit, push if the branch is already pushed. List the
 conflicted files and how you resolved them in `changes-N.md`.
 
 **merge**: only after the human asked for it. Read the pull-request skill and
-follow its merge section: checks green, approval present, `gh pr merge` with
-the repository's merge method, then report. With no code host, read the
-host-none adapter and merge the task branch into its confirmed base locally as
-its "Merge" section says: no push, stop on a dirty base worktree, merge with
-`--no-commit`, commit only when the checks are green, else `git merge --abort`
-and report; switch the task worktree back to the task branch. Write `changes-N.md`.
+the code-host adapter and follow the skill's merge section: checks green,
+approval present, the adapter's merge command with the repository's merge
+method (none named: do not pick one, stop and report), then report. With no
+code host, the adapter is host-none: merge the task
+branch into its confirmed base locally as its "Merge" section says: no push,
+stop on a dirty base worktree, merge with `--no-commit`, commit only when the
+checks are green, else `git merge --abort` and report (conflicts: the
+orchestrator runs a `merge base` pass; red checks: it tells the human);
+switch the task worktree back to the task branch. Write `changes-N.md`.
 
 ## `changes-N.md` sections
 
