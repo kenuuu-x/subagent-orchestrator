@@ -19,10 +19,10 @@ rules. Every file in the plugin must agree with it.
   The contract test fails on these words.
 - Integration names (`GitLab`, `glab`, `Yandex Tracker`) are product features,
   not company words. They are allowed only in the adapter files under
-  `references/adapters/`, in `references/setup.md` (the settings schema lists
-  them) and in `README.md` (and in this spec and the test, which list them on
-  purpose). Anywhere else in the generic flow text they fail
-  the contract test.
+  `references/adapters/`, in `references/setup.md` and
+  `hooks/orchestrator_settings.py` (both hold the settings schema enums) and in
+  `README.md`. This spec and the test list them on purpose. Anywhere else in
+  the generic flow text they fail the contract test.
 - Stack-agnostic: build, test and lint commands come from the target
   repository (`AGENTS.md`, `CLAUDE.md`, `README`, `package.json`, `Makefile`,
   `pyproject.toml`, CI config). Examples may name several ecosystems side by
@@ -87,7 +87,9 @@ plugins/orchestrator/
   agents/visual-checker.md
   hooks/hooks.json
   hooks/subagent-guard.py
+  hooks/orchestrator_settings.py
 tests/test_subagent_guard.py             unittest for the hook
+tests/test_orchestrator_settings.py      unittest for the settings module
 tests/check_contract.py                  forbidden words, frontmatter, links, names
 scripts/validate.sh                      runs both tests
 README.md, LICENSE (MIT), .gitignore
@@ -312,7 +314,8 @@ requires every adapter file and every heading.
    `REQUEST CHANGES`. Then a focused re-review (small fixes → reviewer on
    `sonnet`/`high`).
 10. Tests on request (not when the tester is switched off):
-    `orchestrator:tester` writes an end-to-end or integration test in the project's existing test framework (its brief has
+    `orchestrator:tester` writes an end-to-end or integration test in the
+    project's existing test framework (its brief has
     absolute paths of the worktree, `01-plan.md` and `changes-N.md`, no pasted
     diff; it reads files with Read/Glob/Grep); running it is a `general-purpose`
     `haiku` subagent, only when the human asks. The test code joins the diff:
@@ -432,27 +435,82 @@ plan — the hook blocks it otherwise. The main sonnet brief carries
 
 ## Hook: `subagent-guard.py`
 
-PreToolUse on `SendMessage|Agent|Read`. Fails open (any exception → allow).
-Port the logic of the original guard, generalized:
+PreToolUse on `SendMessage|Agent|Read|Write|Edit|MultiEdit|NotebookEdit`.
+The shared settings code is `hooks/orchestrator_settings.py` (stdlib only): `find_home`,
+`main_checkout`, `project_key` and `project_dir` (the lookup of task-files.md,
+steps 1-3), `load_settings` and `validate_settings` (the schema of setup.md,
+then the existence of instruction files), `active_runs` and `parse_run_file`,
+`task_dir_from_brief`. Known bad states get an explicit deny. An unexpected
+exception, or a failed import of that module (rules 5-11 are then skipped),
+allows the call.
 
 1. `SendMessage` to an agent whose type is `orchestrator:implementer`, whose
    last turn is finished, and whose transcript context exceeds 200k tokens or
    whose last assistant message is older than 60 minutes → deny with a reason
    telling the orchestrator to start a new implementer with the next pass
    number.
-2. `Agent` with `subagent_type` `orchestrator:implementer`:
-   - no explicit `model` → deny, reason "pass model and effort explicitly (see
-     roles-and-models.md)";
-   - model `opus` (or `claude-opus-*`) whose prompt has no standalone
-     `Complexity: hard` or `Hard part: <files>` line → deny. An optional
-     leading `- ` or `* ` bullet is accepted; `Hard part:` followed by
-     nothing, `none` or `n/a` (any case), a value starting with `<` or only
-     punctuation does not count.
+2. `Agent` with `subagent_type` `orchestrator:implementer` and model `opus`
+   (or `claude-opus-*`) whose prompt has no standalone `Complexity: hard` or
+   `Hard part: <files>` line → deny. An optional leading `- ` or `* ` bullet is
+   accepted; `Hard part:` followed by nothing, `none` or `n/a` (any case), a
+   value starting with `<` or only punctuation does not count.
 3. `Read` of an image file (`.png .jpg .jpeg .webp .gif`) from inside a
    subagent whose type starts with `orchestrator:` and is not
    `orchestrator:visual-checker` (bare `visual-checker` is accepted too) →
    deny. The main orchestrator session and subagents of any other type
    (`general-purpose`, `Explore`, other plugins) may read images.
+
+An `Agent` call with an `orchestrator:*` type is checked in the order 4, 2, 5,
+6, 7, 8:
+
+4. No explicit `model` → deny, reason "pass model and effort explicitly (see
+   roles-and-models.md)". It applies to every plugin agent.
+5. The brief has no `Task directory: <home>/projects/<key>/tasks/<id>` line
+   (absolute path, optional bullet and backticks; `~` is not expanded) → deny.
+6. The project from that path has no `settings.json` → deny, "run the setup
+   interview". A file that is not JSON, breaks the setup.md schema or names a
+   missing instruction file → deny with the errors.
+7. When the event has `session_id`: it must be in the `Sessions` line of an
+   active run file (`- Status: active`) in the `runs/` of any project of that
+   home; otherwise deny, the reason carries the id. A run file is parsed by
+   its first `- Status:`, `- Sessions:` and `- Run id:` lines; placeholders
+   like `<session id>` are ignored.
+8. The role (`scout`, `tester`, `visual-checker`) is in `roles_off` → deny.
+
+9. A custom role call (any other `Agent` call): found by `subagent_type`
+   equal to a role's non-general-purpose `agent_type`, or by a role's
+   instruction path in the prompt. Its settings come from the brief's
+   `Task directory:` line. Without that line they come from the cwd lookup,
+   in any session in that repository. So a configured non-general-purpose
+   `agent_type` is held to the settings' model there, also outside a run.
+   The `model` must equal the role's, and `effort` too when the call passes
+   it; otherwise deny. With several matched roles one fitting pair is enough.
+   A broken `settings.json` (not JSON, breaks the schema, or names a missing
+   instruction file):
+   - found through `Task directory:` → deny;
+   - found through cwd → deny when the raw JSON still matches a custom role
+     (type-guarded) or when the event's `session_id` is in an active run of
+     that home. Otherwise allow: a session that does not orchestrate is not
+     blocked by broken settings.
+
+Rule 10 (one writer per worktree), rule 12 (read-only custom roles) and the
+context hook come with PR 5.
+
+11. `Write`, `Edit`, `MultiEdit` or `NotebookEdit` of
+    `<home>/projects/<key>/settings.json`. The home comes from
+    `find_home(cwd)`. The names `settings.json` and `projects` are compared
+    without case. Other `settings.json` files are not touched.
+    - From a subagent → deny: only the orchestrator writes it.
+    - `Edit`, `MultiEdit` and `NotebookEdit` → deny: rewrite the whole file
+      with `Write`.
+    - `Write` whose content breaks the schema or names a missing instruction
+      file → deny. Write the instruction files first, then the settings.
+
+What the hook cannot enforce: that a subagent really runs the model it was
+given (the route check in `state.md` plus the reviewer's finding stand in), the
+`Sessions` entry being genuine (it is a link, not a proof), and a settings
+file changed by `Bash`. The orchestrator is told in its skill to write it only
+with `Write`.
 
 Deny format: JSON on stdout,
 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "..."}}`.

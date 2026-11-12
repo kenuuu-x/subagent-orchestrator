@@ -3,8 +3,9 @@
 Pass `model` (alias: `opus`, `sonnet`, `haiku`) and `effort` (`low`, `medium`,
 `high`, `xhigh`) explicitly on every `Agent` call. Write both to `state.md`.
 That is the route check: the session cannot observe the actual model of a
-subagent. The hook denies an implementer call without `model`. The reviewer
-compares the calls in `state.md` with the settings.
+subagent. The hook denies any plugin agent call without `model`. It also
+denies a custom role call whose model or effort differs from the settings.
+The reviewer compares the calls in `state.md` with the settings.
 
 ## Table by complexity class
 

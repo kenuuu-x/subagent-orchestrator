@@ -1,9 +1,9 @@
 {
-  "description": "Mechanical subagent economy rules for the orchestrator plugin",
+  "description": "Mechanical subagent economy and project settings rules for the orchestrator plugin",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "SendMessage|Agent|Read",
+        "matcher": "SendMessage|Agent|Read|Write|Edit|MultiEdit|NotebookEdit",
         "hooks": [
           {
             "type": "command",

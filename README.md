@@ -151,15 +151,32 @@ servers hold them. A tracker is written to (status, comment) only in mode
 
 ## Cost guards
 
-A plugin hook enforces three rules that keep subagent usage cheap:
+A plugin hook enforces rules that keep subagent usage cheap and the setup
+honest:
 
 - A finished implementer with a long history (over 200k tokens) or idle for
   an hour is not resumed; a new one starts from the task files.
-- An implementer call needs an explicit model, and an opus implementer needs
-  the line `Complexity: hard` or `Hard part: <files>` in its brief (the main sonnet brief gets
-  `Skip (separate opus pass): <files>` instead).
+- Every call of a plugin agent needs an explicit model, and an opus
+  implementer needs the line `Complexity: hard` or `Hard part: <files>` in its
+  brief (the main sonnet brief gets `Skip (separate opus pass): <files>`
+  instead).
 - Only the visual checker among the plugin's roles opens images; everyone else
   reads its text verdict.
+- A plugin agent call needs the `Task directory:` line in its brief, a valid
+  `settings.json` for the project, and a session listed in the `Sessions` line
+  of an active run file. A role in `roles_off` is not called.
+- A custom role runs with the model (and effort, when passed) from the
+  settings. A custom role with its own `agent_type` is held to that model in
+  every session in the repository, also outside a run.
+- Broken settings block every plugin agent call. Other agent calls are
+  blocked only when they run a custom role or come from a session listed in
+  an active run. Other sessions in the repository are not affected.
+- Only the orchestrator writes `settings.json`, with a whole-file `Write`; the
+  hook validates the content and refuses subagents and partial edits.
+
+The hook cannot see the model a subagent really runs on (the reviewer's route
+check against `state.md` covers that) or a settings file changed through a
+shell command.
 
 ## Files it creates
 
@@ -217,9 +234,14 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
 ./scripts/validate.sh
 ```
 
-runs the structural contract (including the adapter files and their fixed
-headings, the settings markers, and the word ban: integration names are allowed
-only in the adapters, the setup reference and this README) and the hook tests.
+runs the structural contract and the hook tests. The contract checks:
+
+- the adapter files and their fixed headings;
+- the settings markers;
+- that the settings example in the setup reference passes the hook's schema
+  check, and that the hook's matcher covers the settings-file writes;
+- the word ban. Integration names are allowed only in the adapters, the setup
+  reference, the settings hook module and this README.
 
 ## License
 

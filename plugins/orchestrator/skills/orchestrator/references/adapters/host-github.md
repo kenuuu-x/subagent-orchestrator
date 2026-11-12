@@ -1,8 +1,9 @@
 # Code host: GitHub
 
-Use this when the repository's `origin` is on GitHub (github.com or a GitHub
-Enterprise host) and the `gh` CLI is logged in. Run the commands in the task
-worktree. Replace `<...>` placeholders; never invent a value.
+Use this when `code_host` is `github` and the `gh` CLI is logged in. Then the
+repository's `origin` is on GitHub: github.com or a GitHub Enterprise host.
+Run the commands in the task worktree. Replace `<...>` placeholders; never
+invent a value.
 
 ## Check access
 

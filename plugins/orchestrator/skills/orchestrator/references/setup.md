@@ -10,9 +10,12 @@ start-up; subagents get only what their brief says.
   [task-files.md](task-files.md). The file is personal and stays outside the
   repository: you never write the repository, and answers such as your chat
   language or MCP server names must not reach teammates.
-- Run the interview before the intake of the first task, when the project has no
-  settings file or the file fails the rules below. Also on `/orchestrator:setup`.
-- Write the file only after the human answered. Never fill answers in yourself.
+- Run the interview before the intake of the first task, when the project has
+  no settings file or the file fails the rules below. Also run it on
+  `/orchestrator:setup`.
+- Write the file only after the human answered, with the Write tool and the
+  whole file. The hook refuses Edit; never write it through Bash. Never fill
+  answers in yourself.
   A missing or invalid file is never "fixed" silently: ask, then rewrite.
 - The file never holds a token, a password or a URL with credentials. Logins
   stay in the `gh`/`glab` CLIs and in the human's MCP servers.
@@ -134,9 +137,9 @@ the file:
   `visual-checker`. It may be empty.
 - `custom_roles`: an array, possibly empty, with unique `name` values. Each item
   has exactly these keys:
-  - `name`: matches `^[a-z0-9]+(-[a-z0-9]+)*$` (`security-reviewer`), not the name of a plugin role
-    (`scout`, `planner`, `implementer`, `reviewer`, `tester`, `visual-checker`),
-    and not `general-purpose`.
+  - `name`: matches `^[a-z0-9]+(-[a-z0-9]+)*$` (`security-reviewer`), not the
+    name of a plugin role (`scout`, `planner`, `implementer`, `reviewer`,
+    `tester`, `visual-checker`), and not `general-purpose`.
   - `agent_type`: `general-purpose` or the name of a project-defined or
     user-defined agent type. It never starts with the plugin's own prefix.
     Among roles that are not `general-purpose`, each value is unique.
@@ -160,3 +163,30 @@ the file:
 - Roles in `roles_off` are skipped everywhere. Custom roles join the flow at
   their phase.
 - Pass the settings path to the planner and the reviewer.
+
+## Enforcement
+
+The plugin's hook checks the file. A plugin agent call (`orchestrator:*`) is
+denied when:
+
+- the call has no explicit `model`;
+- the brief has no `Task directory:` line;
+- the project has no valid settings file;
+- the session is not in the `Sessions` line of an active run file;
+- the role is in `roles_off`.
+
+A custom role call is denied when its `model` differs from the settings. Its
+`effort` is checked only when the call passes one. Without a
+`Task directory:` line the hook finds the settings from the working
+directory, in any session in that repository. So a custom role with its own
+`agent_type` is held to the settings' model there, also outside a run. Broken
+settings found this way block a call only when it runs a custom role or comes
+from a session in an active run.
+
+Settings writes: only the orchestrator writes this file, with a whole-file
+`Write`. A `Write` that breaks the rules above is denied, and so are partial
+edits and writes from a subagent. Write the instruction files of custom roles
+before the settings, because the hook checks that they exist.
+
+The model a subagent really runs on is not visible: the reviewer's route check
+covers it.
