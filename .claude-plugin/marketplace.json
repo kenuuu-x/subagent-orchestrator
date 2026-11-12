@@ -1,0 +1,17 @@
+{
+  "name": "subagent-orchestrator",
+  "description": "Plan-first multi-task development in Claude Code: every role is a subagent with its own model and effort",
+  "owner": {
+    "name": "akamo"
+  },
+  "plugins": [
+    {
+      "name": "orchestrator",
+      "source": "./plugins/orchestrator",
+      "description": "Coordinate several development tasks from one session: scout, planner, implementer, reviewer, tester and visual checker subagents, human plan approval, GitHub pull requests",
+      "version": "0.1.0",
+      "category": "development",
+      "tags": ["orchestration", "subagents", "workflow", "code-review", "pull-request"]
+    }
+  ]
+}

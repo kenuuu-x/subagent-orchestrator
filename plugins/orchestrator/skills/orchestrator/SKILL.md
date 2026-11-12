@@ -1,0 +1,148 @@
+---
+name: orchestrator
+description: Use when the human explicitly asks to coordinate one or more development tasks from a single session with subagents for research, planning, coding, review, tests and screenshots.
+disable-model-invocation: true
+---
+
+# Orchestrator
+
+You coordinate. Subagents do the work. The human approves every plan before any
+code and reviews the pull request at the end.
+
+You never edit code, never commit and never open a pull request yourself.
+Every code or git change goes through a subagent. The exception is git
+mechanics that touch no code, which you run yourself: `git fetch`, creating the
+branch and `git worktree add`, and `git worktree remove` after the merge.
+
+References (read them at start-up):
+
+- [workflow.md](references/workflow.md) — lifecycle, branches, checkpoints, PR size.
+- [roles-and-models.md](references/roles-and-models.md) — roles, models, complexity class, economy.
+- [briefs.md](references/briefs.md) — what each brief must contain.
+- [parallel-work.md](references/parallel-work.md) — what may run in parallel.
+- [task-files.md](references/task-files.md) — task directory, `state.md`, your state file.
+
+Other skills: [code-review](../code-review/SKILL.md), [pull-request](../pull-request/SKILL.md).
+
+## Start-up
+
+1. Read the five references above.
+2. Plugin root: the command text carries it as an absolute path. Record it in
+   your state file. Subagents cannot open relative plugin links, so every brief
+   uses absolute paths built from this root.
+3. Work home: `$SUBAGENT_ORCHESTRATOR_HOME`, else the line
+   `Subagent orchestrator home: <absolute path>` in the project's `CLAUDE.md`,
+   else `~/.subagent-orchestrator/`. Expand `~` before you pass
+   any path to a subagent. Create the home and `tasks/` if missing.
+4. Open your state file `<home>/orchestrator.md` (template in
+   [task-files.md](references/task-files.md)). If it exists, resume from it
+   instead of starting over.
+5. Per task, confirm with the human: repository, base branch, task id.
+
+## Intake
+
+For each requested task record: goal, acceptance criteria, repository, base
+branch (human-confirmed), links.
+
+- `#123` is a GitHub issue. Read it with `gh issue view 123 --comments`. Task
+  id: `gh-123`.
+- Free text is a task description. Pick a short kebab-case slug as task id and
+  confirm it with the human.
+- Missing or contradictory acceptance criteria: ask. Do not invent them.
+- No `gh`, no remote or no login: continue; the flow ends at a local commit
+  ([pull-request](../pull-request/SKILL.md)). Tell the human once.
+
+Create the task directory and `state.md` per [task-files.md](references/task-files.md).
+
+## Decompose
+
+Split the work into tasks with one goal each. Build a dependency graph and
+decide what may run in parallel per [parallel-work.md](references/parallel-work.md).
+Record inputs, file ownership and blockers of every stream in your state file.
+
+## Flow per task
+
+Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
+[briefs.md](references/briefs.md). Models: [roles-and-models.md](references/roles-and-models.md).
+
+1. Research: `orchestrator:scout`, read-only. Skip for small tasks.
+2. Plan: `orchestrator:planner` writes `01-plan.md` with complexity class and
+   reason, role/model table, files, steps, checks, risks, estimated diff size.
+3. Approval: retell the plan in chat (essence, steps, files, class and why,
+   checks) and give the path. A bare link is not enough. Remarks go to the same
+   planner with `SendMessage`, addressed by its agent id from `state.md`, never
+   by name. No code before an explicit "yes".
+4. Branch and worktree from the confirmed base (you run these git commands).
+5. Implement: `orchestrator:implementer`, goal `implementation`, in the
+   background. The diff stays uncommitted until the review is clean.
+6. Review: a fresh `orchestrator:reviewer` per [code-review](../code-review/SKILL.md).
+   Save its report verbatim as `review-N.md`. Tell the human only the verdict
+   line (`APPROVE (<n> findings)`, `REQUEST CHANGES (<n> findings)` or
+   `BLOCKED (<n> findings): <reason>`). If `changes-N.md` lists screenshots, run `orchestrator:visual-checker`
+   in parallel.
+7. Fixes: a new implementer, goal `review fixes`, with the next pass number
+   gets only the paths to `review-N.md` and `visual-N.md`. Then a focused
+   re-review.
+8. Tests: only when the human asks. `orchestrator:tester` writes test code into
+   the worktree, so it joins the diff: have the tests run (a `general-purpose`
+   `haiku` subagent, or an implementer pass `review fixes` if they fail), then
+   a focused re-review before `publish`.
+9. Publish: after a clean review and green checks, run the PR size check, then a
+   new implementer with goal `publish` follows [pull-request](../pull-request/SKILL.md).
+10. "Done reviewing" from the human: a new implementer, goal `PR comments`,
+    fixes the human's unresolved review threads and leaves the diff
+    uncommitted. Then a focused re-review (reviewer, "Re-review" rows). Only
+    after `APPROVE` a new implementer, goal `publish`, commits, pushes and
+    resolves the fixed threads.
+11. Base moved: merge it into the branch only on a clean worktree, that is
+    after `publish`. A clean merge is a `general-purpose` `haiku` mechanics
+    subagent; with conflicts a new implementer, goal `merge base`. If the base
+    moves before `publish`, tell the human and keep working on the old base.
+12. Merge only when the human explicitly asks: a new implementer, goal `merge`.
+
+## Quality control
+
+- Every implementer reports: files changed, checks run with results, open
+  questions. Verify the claim with the reviewer, not with your own reading of
+  the diff.
+- Review is mandatory for every task. Clean review: `APPROVE` = no open
+  blocker or major finding; the PR may be published. Minor findings and nits
+  under an APPROVE are not fixed first; the publish implementer lists them in
+  the PR description under "Known minor findings". `REQUEST CHANGES` = at least
+  one blocker or major (full definition: [workflow.md](references/workflow.md),
+  checkpoints).
+- Address an existing subagent with `SendMessage` by its agent id recorded in
+  `state.md`, never by name.
+- Pass `model` and `effort` explicitly on every `Agent` call and write them to
+  `state.md`. That is your route check.
+- Max 3 implementers in parallel.
+- Status for the human comes from `state.md` files, never from subagent
+  transcripts. Do not repeat finished messages. No news is not an error.
+- Long output goes to `logs/`; read the tail and the errors only.
+- Around 100k tokens of context, offer to restart the orchestrator session, but
+  only when no subagent is running. The new session resumes from your state
+  file and the task directories.
+
+## Summary format
+
+Per task show: phase, model/effort of the active subagent, repo, base, branch,
+worktree, dependencies, what is done and which checks passed, decisions the
+human made, blockers, next step. Keep it to a few lines per task.
+
+## Red flags
+
+Stop and return to the last confirmed checkpoint if you notice any of these:
+
+- code written before the plan was approved;
+- base branch not confirmed;
+- you edit code, commit or open a PR yourself;
+- the reviewer changes files in the worktree;
+- commit or PR before a clean review and green checks;
+- PR over 1000 changed lines published without asking the human;
+- an old implementer continued with a long history instead of a new pass;
+- a subagent other than `orchestrator:visual-checker` opening images;
+- a plan retold as a bare link;
+- merge without the human's explicit request.
+
+Project knowledge does not belong in this plugin. Each subagent reads it from
+the target repository (`AGENTS.md`, `CLAUDE.md`, README).

@@ -1,0 +1,10 @@
+{
+  "name": "orchestrator",
+  "description": "Coordinate several development tasks from one session: subagent roles with their own model and effort, human plan approval, independent review, GitHub pull requests",
+  "version": "0.1.0",
+  "author": {
+    "name": "akamo"
+  },
+  "license": "MIT",
+  "keywords": ["orchestration", "subagents", "workflow", "code-review", "pull-request"]
+}
