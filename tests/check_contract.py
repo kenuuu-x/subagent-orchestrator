@@ -5,7 +5,8 @@ Fails when:
 - a file mentions a forbidden (company-, product- or platform-specific) word;
 - a skill, agent or command has broken frontmatter;
 - a relative markdown link does not resolve;
-- an `orchestrator:<role>` reference names an agent that does not exist;
+- an `orchestrator:<name>` reference names neither an agent nor a command that
+  exists;
 - manifests disagree on name or version;
 - the role table differs between README, spec and roles-and-models.md;
 - a user-facing marker (home override line, pass goal, verdict line) is spelled
@@ -14,7 +15,9 @@ Fails when:
 - the implementer description does not name all six pass goals;
 - a tracker or code-host adapter is missing or lacks one of its fixed headings;
 - an integration name (a code host or tracker product) appears outside the
-  adapters and the README.
+  adapters, the setup reference and the README;
+- a settings marker (path, language rule, custom-roles rule) is missing from
+  the spec, the skill, the setup reference or the README.
 """
 
 import json
@@ -30,12 +33,13 @@ FORBIDDEN = re.compile(
     r"|maestro|emulator|figma|studioprojects|build-lock|work-slot|[а-яё]",
     re.IGNORECASE,
 )
-# Integration names are product features, not company words: the adapters and
-# the README may name them. Any other file (the generic flow text) may not.
+# Integration names are product features, not company words: the adapters, the
+# setup reference (the settings schema lists them) and the README may name them.
+# Any other file (the generic flow text) may not.
 INTEGRATION = re.compile(r"gitlab|\bglab\b|yandex[ -]tracker", re.IGNORECASE)
 REFS = PLUGIN / "skills" / "orchestrator" / "references"
 ADAPTERS = REFS / "adapters"
-INTEGRATION_ALLOWED = {ROOT / "README.md"}
+INTEGRATION_ALLOWED = {ROOT / "README.md", REFS / "setup.md"}
 # The spec and this test list the forbidden words on purpose.
 FORBIDDEN_SKIP = {ROOT / "docs" / "spec.md", Path(__file__).resolve()}
 
@@ -164,6 +168,8 @@ def check_frontmatter():
         fields = frontmatter(path)
         if not fields or not fields.get("description"):
             fail(path, "missing description")
+        elif fields.get("disable-model-invocation") != "true":
+            fail(path, "commands need disable-model-invocation: true")
     expected = {"scout", "planner", "implementer", "reviewer", "tester", "visual-checker"}
     if agents != expected:
         fail(PLUGIN / "agents", f"agents {sorted(agents)} != {sorted(expected)}")
@@ -171,6 +177,8 @@ def check_frontmatter():
 
 
 def check_links_and_refs(agents):
+    # `orchestrator:<name>` is an agent or a command of this plugin.
+    names = agents | {path.stem for path in (PLUGIN / "commands").glob("*.md")}
     for path in text_files():
         if path.suffix != ".md":
             continue
@@ -184,8 +192,8 @@ def check_links_and_refs(agents):
         if path in FORBIDDEN_SKIP:
             continue
         for name in AGENT_REF.findall(text):
-            if name not in agents and name != "orchestrate":
-                fail(path, f"unknown agent orchestrator:{name}")
+            if name not in names:
+                fail(path, f"unknown agent or command orchestrator:{name}")
 
 
 def check_manifests():
@@ -229,14 +237,20 @@ def check_markers():
     home = "Subagent orchestrator home: <absolute path>"
     goals = PASS_GOALS
     runs = "<home>/projects/<project-key>/runs/<run-id>.md"
+    settings = "<home>/projects/<project-key>/settings.json"
+    language = "Repository artifacts keep the project's own language"
+    # The rule under the role table: custom roles are not rows of the table.
+    roles_rule = "Custom roles come from the settings"
     tasks = "<home>/projects/<project-key>/tasks/<task-id>/"
     verdicts = ("APPROVE (<n> findings)", "REQUEST CHANGES (<n> findings)", "BLOCKED (<n> findings): <reason>")
     refs = PLUGIN / "skills" / "orchestrator" / "references"
     wanted = [
-        (ROOT / "README.md", [home]),
-        (ROOT / "docs" / "spec.md", [home, runs, tasks, *verdicts]),
-        (PLUGIN / "skills" / "orchestrator" / "SKILL.md", [home, runs, tasks]),
-        (refs / "task-files.md", [home, runs, tasks, "- Status:", "- Sessions:"]),
+        (ROOT / "README.md", [home, language, roles_rule]),
+        (ROOT / "docs" / "spec.md", [home, runs, tasks, settings, language, roles_rule, *verdicts]),
+        (PLUGIN / "skills" / "orchestrator" / "SKILL.md", [home, runs, tasks, settings, language]),
+        (refs / "task-files.md", [home, runs, tasks, settings, "- Status:", "- Sessions:"]),
+        (refs / "setup.md", [settings, language]),
+        (refs / "roles-and-models.md", [roles_rule]),
         (PLUGIN / "skills" / "code-review" / "SKILL.md", list(verdicts)),
         (PLUGIN / "agents" / "reviewer.md", list(verdicts)),
         (refs / "briefs.md", [f"`{goal}`" for goal in goals]),

@@ -15,8 +15,8 @@ sub-issues, links and comments.
 ## Change status
 
 Linear sets a workflow state by name (for example the states of the team's
-workflow). List the states of the issue's team, and set the one the human
-named. Never guess a state name.
+workflow). List the states of the issue's team, and set the one named in
+`tracker.statuses`. Never guess a state name. Write only in mode `automate`.
 
 ## Comment
 

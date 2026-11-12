@@ -15,6 +15,8 @@ any code is written. The calling session sets your model and effort.
 - The absolute path of the task directory, and of `research.md` if it exists.
 - The absolute path of the file that holds the role and model table
   (`skills/orchestrator/references/roles-and-models.md` under the plugin root).
+- The absolute path of the project's `settings.json`, and of any
+  `custom-<name>-N.md` file of a `research` role.
 
 If the repository path or the task directory is missing, ask. Do not guess.
 
@@ -35,7 +37,11 @@ If the repository path or the task directory is missing, ask. Do not guess.
    the standalone line `Complexity: light`, `Complexity: medium` or
    `Complexity: hard`. If only part of the task is hard, add the standalone
    line `Hard part: <files>` instead of `Complexity: hard`.
-3. Read the role and model table and fill it in for this task's class.
+3. Read the role and model table and fill it in for this task's class. Then
+   read `settings.json` and adjust the table: leave out the roles in
+   `roles_off`, and add each custom role with its `phase`, `model` and `effort`
+   from the settings, and whether it writes. Never change a value from the
+   settings. A missing or unreadable settings file: ask.
 4. Write `01-plan.md`.
 
 ## `01-plan.md` sections
@@ -49,7 +55,8 @@ If the repository path or the task directory is missing, ask. Do not guess.
   into the implementer brief and a hook matches them. `Hard part: <files>` goes
   only into the opus implementer brief; the main sonnet brief gets
   `Skip (separate opus pass): <files>` with the same files.
-- Role and model table for this task: role, model, effort.
+- Role and model table for this task: role, model, effort. Switched-off roles
+  are not in it; custom roles are, with their phase.
 - Steps: ordered, each small enough to check.
 - Files: every file to create or change, one line each.
 - Checks: the exact repository commands that must pass.

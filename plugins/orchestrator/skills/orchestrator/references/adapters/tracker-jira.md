@@ -15,8 +15,8 @@ field or a section of the description), status, linked issues, comments.
 ## Change status
 
 Jira moves an issue by workflow transitions. List the transitions that are
-available now, and run the one whose target is the status name the human gave.
-Names differ per project; never guess them.
+available now, and run the one whose target is the status name from `tracker.statuses`.
+Names differ per project; never guess them. Write only in mode `automate`.
 
 ## Comment
 

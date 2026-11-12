@@ -90,8 +90,9 @@ status such as `ci_must_pass`, `not_approved`, `discussions_not_resolved` or
 ## Merge
 
 Merge with the repository's usual method. Pass the flag the human or the
-repository rules name (`--squash` or `--rebase`; none means the project's
-configured merge method) and add no flags of your own, except `--yes` to skip
+repository rules name (`--squash` or `--rebase`). The project's configured
+merge method counts as the repository's rule: with no method named, pass no
+method flag and do not stop. Add no flags of your own, except `--yes` to skip
 the prompt and `--auto-merge=false` (glab schedules a merge by default while a
 pipeline runs):
 

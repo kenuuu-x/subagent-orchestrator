@@ -11,9 +11,9 @@ Checks and approval, Merge.
 
 | Adapter | When |
 |---|---|
-| [host-github.md](host-github.md) | `origin` is on GitHub and `gh` is logged in |
-| [host-gitlab.md](host-gitlab.md) | `origin` is on GitLab and `glab` is logged in |
-| [host-none.md](host-none.md) | no remote, no login for the host's CLI, or the human says so |
+| [host-github.md](host-github.md) | `code_host` is `github` |
+| [host-gitlab.md](host-gitlab.md) | `code_host` is `gitlab` |
+| [host-none.md](host-none.md) | `code_host` is `none`, or the host's CLI is missing or not logged in |
 
 ## Tracker adapters
 
@@ -21,30 +21,33 @@ Headings: Read a task, Task id, Change status, Comment, Link a pull request.
 
 | Adapter | When |
 |---|---|
-| [tracker-github-issues.md](tracker-github-issues.md) | task is `#123` on a GitHub host |
+| [tracker-github-issues.md](tracker-github-issues.md) | `tracker.type` is `github-issues` |
 | [tracker-mcp.md](tracker-mcp.md) | shared rules for every tracker below |
-| [tracker-jira.md](tracker-jira.md) | key of a Jira project |
-| [tracker-linear.md](tracker-linear.md) | identifier of a Linear team |
-| [tracker-yandex-tracker.md](tracker-yandex-tracker.md) | key of a Yandex Tracker queue |
-| [tracker-other.md](tracker-other.md) | any other tracker |
+| [tracker-jira.md](tracker-jira.md) | `tracker.type` is `jira` |
+| [tracker-linear.md](tracker-linear.md) | `tracker.type` is `linear` |
+| [tracker-yandex-tracker.md](tracker-yandex-tracker.md) | `tracker.type` is `yandex-tracker` |
+| [tracker-other.md](tracker-other.md) | `tracker.type` is `other` |
 
 ## Choose the adapters
 
-Do this at intake, once per repository, and record the choice in your run
-file.
+The project's `settings.json` decides ([setup.md](../setup.md)). Do not infer
+the adapters from the `origin` URL or from the form of the task. Record the
+choice in your run file.
 
-- Code host, from `git remote get-url origin`: a GitHub host (github.com, or a
-  host that `gh auth status` lists) takes the GitHub adapter; a GitLab host
-  (gitlab.com, or a host that `glab auth status` lists) takes the GitLab
-  adapter. No remote, an unknown host, or a CLI that is missing or not logged
-  in: [host-none.md](host-none.md). A host you cannot classify: ask the human.
-- Tracker, from the form of the task:
-  - `#123` on a GitHub host: GitHub Issues. On another host: ask the human
-    which tracker it is, and use [tracker-other.md](tracker-other.md).
-  - `ABC-123` (letters, a dash, digits): ask the human which tracker it is
-    (Jira, Linear, Yandex Tracker or other), and use its adapter with
-    [tracker-mcp.md](tracker-mcp.md).
-  - Free text: no tracker. Skip the tracker steps.
-- Write to a tracker (status, comment) only when the human asked for it, with
-  the status names the human gave. Reading a task is always allowed.
+- Code host, from `code_host`: `github` takes the GitHub adapter, `gitlab` the
+  GitLab adapter, `none` [host-none.md](host-none.md). A host CLI that is
+  missing or not logged in now: tell the human and use host-none.md for this
+  run; do not rewrite the settings.
+- Tracker, from `tracker.type` and `tracker.access`:
+  - `github-issues`: [tracker-github-issues.md](tracker-github-issues.md), a
+    task `#123`.
+  - `jira`, `linear`, `yandex-tracker` or `other` with access `mcp`: that
+    type's adapter together with [tracker-mcp.md](tracker-mcp.md), a key such
+    as `ABC-123`.
+  - Type `none`, or access `none` (no MCP server visible): free text, skip the
+    tracker steps.
+  - A task whose form does not fit the type (a key with GitHub Issues, `#123`
+    with Jira): ask the human.
+- Write to a tracker (status, comment) only in mode `automate`, with the
+  status names from `tracker.statuses`. Mode `read-only` only reads tasks.
 - Paths in a brief are absolute: `<plugin root>/skills/orchestrator/references/adapters/<file>`.

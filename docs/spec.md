@@ -19,8 +19,9 @@ rules. Every file in the plugin must agree with it.
   The contract test fails on these words.
 - Integration names (`GitLab`, `glab`, `Yandex Tracker`) are product features,
   not company words. They are allowed only in the adapter files under
-  `references/adapters/` and in `README.md` (and in this spec and the test,
-  which list them on purpose). Anywhere else in the generic flow text they fail
+  `references/adapters/`, in `references/setup.md` (the settings schema lists
+  them) and in `README.md` (and in this spec and the test, which list them on
+  purpose). Anywhere else in the generic flow text they fail
   the contract test.
 - Stack-agnostic: build, test and lint commands come from the target
   repository (`AGENTS.md`, `CLAUDE.md`, `README`, `package.json`, `Makefile`,
@@ -40,6 +41,9 @@ rules. Every file in the plugin must agree with it.
     stores a token, a password or a URL with credentials.
   - A task is an issue (`#123`, or a key such as `ABC-123`) or a free-text
     description.
+- Per-project choices (tracker, code host, roles, chat language) come from a
+  settings file written by a first-run interview, never from guesses (see
+  "First-run setup and settings").
 - Only one mode: subagents inside one orchestrator session. No background
   sessions, no worker scripts, no external dashboards.
 - Model names are aliases only: `opus`, `sonnet`, `haiku` (no version numbers).
@@ -54,6 +58,7 @@ rules. Every file in the plugin must agree with it.
 plugins/orchestrator/
   .claude-plugin/plugin.json             plugin "orchestrator", version 0.1.0
   commands/orchestrate.md                /orchestrator:orchestrate <tasks>
+  commands/setup.md                      /orchestrator:setup [setting to change]
   skills/orchestrator/SKILL.md           entry skill (disable-model-invocation: true)
   skills/orchestrator/references/
     workflow.md                          task lifecycle, branches, worktrees, checkpoints, PR size
@@ -61,6 +66,7 @@ plugins/orchestrator/
     briefs.md                            what each subagent brief must contain
     parallel-work.md                     when tasks may run in parallel
     task-files.md                        project, run and task layout, state.md and run-file templates
+    setup.md                             first-run interview, settings.json schema, change path
     adapters/index.md                    which adapter to use and how to choose it
     adapters/host-github.md              code host GitHub: gh and GraphQL commands
     adapters/host-gitlab.md              code host GitLab: glab and API commands
@@ -104,10 +110,19 @@ built-in `general-purpose` type.
   The README documents the override line.
 - Project directory: `<home>/projects/<project-key>/`. The project key is the
   name of the main checkout directory (the parent of the git common dir), in
-  lowercase kebab-case (the git common dir resolved to an absolute path first);
-  `-2`, `-3` only when the directory has tasks and none names this repository
-  in its `Repo:` line. A task directory always lives in the project of its own
-  `Repo:`.
+  lowercase kebab-case (the git common dir resolved to an absolute path first).
+  Lookup: (1) scan `<key>`, `<key>-2`, ... to the first missing suffix;
+  (2) a parsed `settings.json` with `repo` equal to this main checkout is the
+  project; (3) a `settings.json` that exists but cannot be parsed, or has no
+  string `repo`: stop, show the error, ask the human, never skip it; (4) no
+  match: the first settings-less directory whose tasks are empty or all name
+  this checkout (ask before adopting one with tasks), else the first missing
+  suffix, and run setup there. The PR 4 hook uses steps 1-3 (no match means
+  no settings: run setup). A task directory always lives in the project of its
+  own `Repo:`; per task, the settings of that project apply, and the chat
+  language comes from the project where the run started.
+- Settings file: `<home>/projects/<project-key>/settings.json`. Custom role
+  instruction files: `<home>/projects/<project-key>/roles/<name>.md`.
 - Run file (the orchestrator state file, one per run):
   `<home>/projects/<project-key>/runs/<run-id>.md` — queue, user decisions,
   plugin root, repo paths, active subagents. Run id: `<YYYYMMDD-HHMM>` of the
@@ -137,6 +152,8 @@ built-in `general-purpose` type.
   - `review-N.md` (orchestrator saves the reviewer's report verbatim)
   - `visual-N.md` (visual-checker)
   - `test-N.md` (tester's scenario notes; the test code itself goes into the worktree)
+  - `custom-<name>-N.md` (a custom role: notes or findings; for a writing role
+    a change journal)
   - `remarks-N.md` (orchestrator: the human's remarks on a local commit, saved
     verbatim; no code host)
   - `logs/` (long command output)
@@ -166,21 +183,90 @@ requires every adapter file and every heading.
 - Tracker adapters: `tracker-github-issues.md`, `tracker-mcp.md` (shared rules),
   `tracker-jira.md`, `tracker-linear.md`, `tracker-yandex-tracker.md`,
   `tracker-other.md`.
-- Choice at intake (`adapters/index.md`): the host from the `origin` URL (a
-  GitHub host, a GitLab host, else none or ask); the tracker from the form of
-  the task (`#123` on a GitHub host is GitHub Issues; `ABC-123` makes the
-  orchestrator ask which tracker, then it uses the MCP adapter; free text has
-  no tracker). It records both in the run file.
+- Choice (`adapters/index.md`): the settings decide. The host from `code_host`
+  (a host CLI that is missing or not logged in now means `host-none.md` for
+  this run); the tracker from `tracker.type` (`github-issues` uses `gh`; the
+  others use the MCP adapter; type or access `none` means free text). A task
+  whose form does not fit the type: ask. The orchestrator records both in the
+  run file.
 - Who does what: the orchestrator reads tasks itself. Status changes and
   comments go to a `general-purpose` `haiku` mechanics subagent, one exact
   action per call, and the orchestrator writes the comment text. The
-  orchestrator writes to a tracker only when the human asked for it, with the
-  status names the human gave. Automation points: the start status when the plan
+  orchestrator writes to a tracker only in mode `automate`, with the status
+  names from the settings. Automation points: the start status when the plan
   is approved; the review status and a comment with the PR link after
   `publish`; the done status after `merge`.
 - Briefs: the code-host adapter's absolute path goes into every `publish`,
   `PR comments` and `merge` brief; the tracker adapter's into a `publish` brief
   with an issue reference and into a mechanics brief that changes a tracker.
+
+## First-run setup and settings
+
+- Reference `references/setup.md` and command `/orchestrator:setup` (a command,
+  not an argument keyword, so it cannot clash with a free-text task called
+  "setup"). The settings file is `<home>/projects/<project-key>/settings.json`.
+  It lives in the work home, not in the repository: the orchestrator never
+  writes the repository, and the answers are personal.
+- When: before the intake of the first task in a repository whose settings file
+  is missing or invalid. The orchestrator detects defaults (`git remote get-url
+  origin`, `gh auth status`, `glab auth status`, the MCP servers visible in the
+  session), asks four numbered questions in one message and writes the file
+  only after the human answered. It validates the file and retells it in two
+  lines.
+- Questions: (1) tracker and mode (`read-only` or `automate`, with the status
+  names `start`, `review`, `done`); (2) code host (`github`, `gitlab`, `none`);
+  (3) roles: the core is fixed, scout, tester and visual-checker can be
+  switched off (`roles_off`), custom roles are optional; (4) chat language.
+- Schema (version 1, strict JSON, every key required, `null` when it does not
+  apply, unknown keys are errors): `version`, `repo`, `tracker` (`type`,
+  `name`, `access`, `mcp_server`, `mode`, `statuses`), `code_host`,
+  `roles_off`, `custom_roles`, `chat_language`, `saved`. The allowed values and
+  the cross-field rules are in `setup.md`; the file never holds a token, a
+  password or a URL with credentials.
+- Language rule: Repository artifacts keep the project's own language (code,
+  comments, commit messages, PR descriptions, tracker comments follow the
+  repository's `AGENTS.md` / `CLAUDE.md` or history). Briefs and reports between
+  agents stay in English. Only messages to the human use `chat_language`.
+- Change path: `/orchestrator:setup` runs the interview again with the current
+  values as defaults (one answer may be changed alone); during a run "change
+  setting X" asks only that question and rewrites the file; or the human edits
+  the JSON. Changes apply from the next phase; a running subagent keeps its
+  brief.
+- Use: the settings pick the adapters, switch roles off (the planner leaves
+  them out of the task's role table; their rows are skipped), and add custom
+  roles. The planner and the reviewer briefs carry the settings path. The
+  reviewer adds a route-check finding when the agent calls in `state.md`
+  disagree with the settings: minor, and major only when the wrongly run role
+  changed the diff. The reviewer brief also carries the `custom-<name>-N.md`
+  journals and instruction paths of the writing roles; their changes are in
+  scope.
+
+### Custom roles
+
+- A role runs as a `general-purpose` agent with an instruction file
+  (`<home>/projects/<project-key>/roles/<name>.md`, or a path the human gives),
+  or as a project-defined or user-defined agent type the human names. Never in
+  the plugin's own agent namespace. Each role has a `phase`, a `model` and an
+  `effort`, passed explicitly on the `Agent` call. In `state.md` it is
+  `custom:<name>`; the goal is the phase.
+- Read-only (the default, `writes: false`): phases `research` (after the scout;
+  the planner gets the output), `plan` (after `01-plan.md`, before the retell),
+  `review` (parallel with the reviewer, same uncommitted diff), `publish` (a
+  gate after the clean review and the size check). It writes only
+  `<task dir>/custom-<name>-N.md`; in `review` and `publish` the file starts
+  with a verdict line, and `REQUEST CHANGES` joins the fix loop (the `review
+  fixes` brief lists the file next to `review-N.md`).
+- Writing (`writes: true`, phase `implementation` only): runs in the task
+  worktree after the implementer pass `implementation`, strictly one at a time,
+  never with an implementer or another writer. Its changes stay uncommitted and
+  the review runs after the writers. It writes `custom-<name>-N.md` as a change
+  journal with the sections of `changes-N.md`, runs the plan's checks, never
+  commits. Its brief carries the standalone line `Worktree: <absolute path>`.
+  The interview warns once that writing is normally the implementer's job; the
+  human's choice wins.
+- Custom roles are not rows of the shared role table: a rule under the table
+  says so. Docs never write the plugin's agent prefix followed by a custom role
+  name (the contract test would fail).
 
 ## Task flow (orchestrator)
 
@@ -188,12 +274,13 @@ requires every adapter file and every heading.
    branch (confirmed by the human), links. An issue is read through the tracker
    adapter (GitHub Issues: `gh issue view`).
 2. Decompose and build a dependency graph (`parallel-work.md`).
-3. Research: `orchestrator:scout`, read-only. Small tasks skip the scout.
+3. Research: `orchestrator:scout`, read-only. Small tasks skip the scout, and
+   so do projects that switched it off.
 4. Plan: `orchestrator:planner` writes `01-plan.md` including the complexity
    (the standalone line `Complexity: light|medium|hard`, or `Hard part: <files>`
    when only part is hard) with its reason, the role/model table for this task,
    files, steps, checks (commands from the repo), risks, and an estimated diff
-   size.
+   size. The planner reads the settings and builds the table from them.
 5. Approval: the orchestrator retells the plan in chat (essence, steps, files,
    class and why, checks) and gives the path. A bare link is not enough.
    Remarks go back to the same planner via `SendMessage`, addressed by its
@@ -208,6 +295,7 @@ requires every adapter file and every heading.
    the review is clean. Hard part: a separate short implementer on `opus` only
    for the listed files. Stuck on `sonnet` (two attempts at the same error, or
    edits going in circles) → repeat the step with a new `opus` implementer.
+   Writing custom roles run after it, one at a time.
 8. Review: fresh `orchestrator:reviewer`, read-only, per `code-review`. First
    line of its report is the verdict: `APPROVE (<n> findings)`,
    `REQUEST CHANGES (<n> findings)` or `BLOCKED (<n> findings): <reason>`.
@@ -217,12 +305,14 @@ requires every adapter file and every heading.
    findings". `REQUEST CHANGES` = at least one blocker or major. The
    orchestrator saves the report as `review-N.md` and tells the human only the
    first line. If `changes-N.md`
-   lists screenshots, run `orchestrator:visual-checker` in parallel.
+   lists screenshots, run `orchestrator:visual-checker` in parallel (unless
+   switched off). Read-only `review` custom roles run in parallel too.
 9. Fixes: a NEW implementer, goal `review fixes`, pass N+1, gets only paths to
-   `review-N.md` / `visual-N.md`. Then a focused re-review (small fixes → reviewer on
+   `review-N.md` / `visual-N.md` and each `custom-<name>-N.md` with
+   `REQUEST CHANGES`. Then a focused re-review (small fixes → reviewer on
    `sonnet`/`high`).
-10. Tests on request: `orchestrator:tester` writes an end-to-end or
-    integration test in the project's existing test framework (its brief has
+10. Tests on request (not when the tester is switched off):
+    `orchestrator:tester` writes an end-to-end or integration test in the project's existing test framework (its brief has
     absolute paths of the worktree, `01-plan.md` and `changes-N.md`, no pasted
     diff; it reads files with Read/Glob/Grep); running it is a `general-purpose`
     `haiku` subagent, only when the human asks. The test code joins the diff:
@@ -232,6 +322,8 @@ requires every adapter file and every heading.
 11. Publish: after a clean review and green checks, a new implementer with goal
     `publish` commits, pushes and opens the PR per `pull-request`. Before that,
     check PR size (`workflow.md`); over 1000 changed lines → ask the human first.
+    `publish` custom roles run as a gate after the clean review and the size
+    check.
 12. "Done reviewing" from the human → new implementer with goal `PR comments`:
     fixes the human's unresolved PR review comments per `pull-request` and
     leaves the diff uncommitted. The orchestrator runs a focused re-review
@@ -246,8 +338,8 @@ requires every adapter file and every heading.
     base.
 14. Merge only when the human explicitly asks: a new implementer with goal
     `merge` (checks green, approval present, the host adapter's merge command
-    with the repository's merge method, then report; with no method named it
-    stops and reports). With no code host it
+    with the repository's merge method, then report; when the adapter requires
+    a method flag and none is named it stops and reports). With no code host it
     merges the task branch into its confirmed base locally (`host-none.md`): in the
     worktree where the base is checked out, never stash a dirty one, `--no-ff
     --no-commit` unless the human or repository names a method, the plan's
@@ -285,8 +377,11 @@ context, only when no subagent is running.
 | Screenshots `orchestrator:visual-checker` | haiku / low | haiku / low | sonnet / medium |
 | Merge (new implementer, goal `merge`) | sonnet / low | sonnet / low | sonnet / low |
 | Merge base into branch, no conflicts (`general-purpose`) | haiku / low | haiku / low | haiku / low |
-| Mechanics: issue labels/comments, running a given script (`general-purpose`) | haiku / low | haiku / low | haiku / low |
+| Mechanics: tracker status/comments, running a given script (`general-purpose`) | haiku / low | haiku / low | haiku / low |
 | Orchestrator session itself | sonnet / medium (opus also fine) | | |
+
+Custom roles come from the settings file, not from this table: each has its own
+model and effort. Rows of roles switched off in the settings are skipped.
 
 - Small fixes = up to ~200 changed lines since the last review, no shared
   contract change, no finding above "minor". Otherwise use the "Review" row.
@@ -373,6 +468,9 @@ Deny format: JSON on stdout,
 | tester.md | tester | tools: Read, Grep, Glob, Write, Edit; disallowed: Agent, Bash | none |
 | visual-checker.md | visual-checker | tools: Read, Glob, Write; disallowed: Edit, NotebookEdit, Agent, Bash | none |
 
+The planner reads `settings.json` and builds the task's role table from it. The
+reviewer reads it and the task's `state.md` for the route check.
+
 Every agent: if the brief lacks the task directory or a required path, ask
 instead of guessing. Answer the orchestrator briefly; details go to files.
 
@@ -385,8 +483,9 @@ Write/Edit) and notes into `test-N.md`; it never runs anything.
 
 ## Skills
 
-- `orchestrator` (entry, ~130 lines): purpose, start-up (read references,
-  record plugin root and home, confirm repo/base per task), intake and
+- `orchestrator` (entry, ~210 lines): purpose, start-up (read references,
+  record plugin root and home, read or create the settings, confirm repo/base
+  per task), intake and
   decomposition, the flow above in short form, quality control, summary
   format, red flags. Links to references.
 - `code-review` (~90 lines): read-only; what to check (correctness against
@@ -419,5 +518,6 @@ Sections: what it is (2–3 sentences), install
 `/plugin install orchestrator@subagent-orchestrator`), requirements (Claude
 Code, git, optional host CLI logged in and optional tracker MCP server), quick
 start example, how a task flows (short list), roles and models table,
-complexity class, integrations (adapters), files it creates,
+complexity class, setup and integrations (the interview, the settings,
+adapters), files it creates,
 customising (home dir, per-project rules in `CLAUDE.md`), limitations, license.

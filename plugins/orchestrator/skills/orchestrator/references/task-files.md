@@ -9,11 +9,26 @@
   repository lives there, so ids of different repositories never collide.
 - Project key: the name of the main checkout directory (the parent of
   `git rev-parse --git-common-dir`, resolved to an absolute path first), in
-  lowercase kebab-case. The project directory belongs to this repository if any
-  of its tasks' `state.md` has a `Repo:` line naming this repository. Only when
-  tasks exist and none of them names this repository, use `<key>-2`,
-  `<key>-3`, and so on.
-- A task directory always lives in the project of its own `Repo:`.
+  lowercase kebab-case. Lookup:
+  1. Scan `<key>`, `<key>-2`, `<key>-3`, ... up to the first suffix that does
+     not exist.
+  2. A `settings.json` that parses and has a `repo` equal to the absolute path
+     of this main checkout: this directory is the project.
+  3. A `settings.json` that exists but cannot be parsed, or has no string
+     `repo`: stop, show the error and ask the human. Never skip it.
+  4. No match after the scan: the new project is the first scanned directory
+     without a `settings.json` whose tasks are empty or all name this checkout
+     in their `state.md` `Repo:` line (ask before you adopt a directory that
+     has tasks); if there is none, the first suffix that does not exist. Run
+     the setup interview there ([setup.md](setup.md)).
+
+  The PR 4 hook uses steps 1-3 only: no match means no settings, so run setup.
+- Settings file: `<home>/projects/<project-key>/settings.json`. Format and
+  interview: [setup.md](setup.md).
+- A task directory always lives in the project of its own `Repo:`, and that
+  project needs its own settings file before the task starts. Per task, use the
+  settings of the task's own project; the chat language comes from the project
+  where the run started.
 - Run file (your state file, one per run):
   `<home>/projects/<project-key>/runs/<run-id>.md`.
 - Task directory: `<home>/projects/<project-key>/tasks/<task-id>/`.
@@ -26,6 +41,8 @@
 
 ```
 <home>/projects/<project-key>/
+  settings.json             first-run setup answers, see setup.md
+  roles/<name>.md           instruction file of a custom role
   runs/<run-id>.md          one state file per run
   tasks/<task-id>/          one directory per task
 ```
@@ -40,6 +57,7 @@
 | `review-N.md` | orchestrator | the reviewer's report, saved verbatim |
 | `visual-N.md` | visual-checker | short text verdict on the screenshots of pass N |
 | `test-N.md` | tester | scenario notes (the test code goes into the worktree) |
+| `custom-<name>-N.md` | custom role `<name>`, pass N | read-only role: its notes or findings (verdict line first in the `review` and `publish` phases); writing role: change journal with the sections of `changes-N.md` |
 | `remarks-N.md` | orchestrator | the human's remarks on a local commit, saved verbatim (no code host) |
 | `logs/` | anyone | long command output; read only the tail and errors |
 | `state.md` | orchestrator | see below |
@@ -78,6 +96,8 @@ whichever project you started in.
 |---|---|---|---|---|---|---|
 | 1 | implementer | sonnet | high | <id> | implementation | running |
 ```
+
+A custom role appears as `custom:<name>`; its goal is its phase.
 
 ## Run file template
 

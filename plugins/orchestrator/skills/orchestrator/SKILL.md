@@ -21,6 +21,7 @@ References (read them at start-up):
 - [briefs.md](references/briefs.md) — what each brief must contain.
 - [parallel-work.md](references/parallel-work.md) — what may run in parallel.
 - [task-files.md](references/task-files.md) — project and task directories, `state.md`, your run file.
+- [setup.md](references/setup.md) — the first-run interview and the settings file.
 
 Other skills: [code-review](../code-review/SKILL.md), [pull-request](../pull-request/SKILL.md).
 Adapters for the tracker and the code host: [adapters/index.md](references/adapters/index.md).
@@ -28,7 +29,7 @@ Read the chosen adapters when the first task needs them.
 
 ## Start-up
 
-1. Read the five references above.
+1. Read the six references above.
 2. Plugin root: the command text carries it as an absolute path. Record it in
    your run file. Subagents cannot open relative plugin links, so every brief
    uses absolute paths built from this root.
@@ -40,37 +41,50 @@ Read the chosen adapters when the first task needs them.
    Create `<home>/projects/<project-key>/runs/` and `tasks/` if missing. Run
    files live in `<home>/projects/<project-key>/runs/<run-id>.md`, task
    directories in `<home>/projects/<project-key>/tasks/<task-id>/`.
-5. Run file: list the active run files of the project. None: start a new run
+5. Settings: read `<home>/projects/<project-key>/settings.json`. Missing or
+   invalid: run the setup interview ([setup.md](references/setup.md)) before the
+   intake of any task, and write the file only after the human answered. The
+   settings fix the code host, the tracker and its mode, the roles that are
+   off, the custom roles and the chat language.
+6. Run file: list the active run files of the project. None: start a new run
    from the template in [task-files.md](references/task-files.md). Some: show
    them and ask which to resume or whether to start a new run; never resume
    silently. A legacy 0.1.0 home: follow the legacy rule in task-files.md.
-6. Per task, confirm with the human: repository, base branch, task id.
-7. Adapters: choose the code-host adapter and, per task, the tracker adapter
-   as [adapters/index.md](references/adapters/index.md) says (code host from
-   the `origin` URL, tracker from the form of the task). Record both in your run
-   file. Subagents cannot open relative plugin links, so each brief carries the
-   absolute path of its adapter.
+7. Per task, confirm with the human: repository, base branch, task id.
+8. Adapters: take the code-host adapter and the tracker adapter from the
+   settings, as [adapters/index.md](references/adapters/index.md) says. Record
+   both in your run file. Subagents cannot open relative plugin links, so each
+   brief carries the absolute path of its adapter.
+
+## Language
+
+Reply to the human in `chat_language`.
+Repository artifacts keep the project's own language: code, comments, commit
+messages, PR descriptions and tracker comments follow the repository's rules.
+Briefs and reports between agents stay in English.
 
 ## Intake
 
 For each requested task record: goal, acceptance criteria, repository, base
 branch (human-confirmed), links.
 
-- `#123` is a GitHub issue. Read it with the tracker adapter
+- `#123` is a GitHub issue when the tracker is GitHub Issues. Read it with the
+  tracker adapter
   ([tracker-github-issues.md](references/adapters/tracker-github-issues.md)). Task
   id: `gh-123`.
-- A key like `ABC-123` is an issue of the human's tracker: ask which tracker it
-  is and read it through the MCP adapter (see adapters/index.md). Task id:
-  `abc-123`.
+- A key like `ABC-123` is an issue of the tracker in the settings: read it
+  through that tracker's adapter and the MCP adapter (see adapters/index.md).
+  Task id: `abc-123`. A task form that does not fit the settings: ask.
 - Free text is a task description. Pick a short kebab-case slug as task id and
   confirm it with the human. Task ids per project: see task-files.md.
 - Missing or contradictory acceptance criteria: ask. Do not invent them.
-- No remote, or no login for the host's CLI: continue; `publish` is a local
-  commit and `merge` a local merge
+- Code host `none` in the settings, or the host's CLI missing or not logged in
+  now: continue; `publish` is a local commit and `merge` a local merge
   ([host-none.md](references/adapters/host-none.md)). Tell the human once.
-- A tracker is written to (status, comment) only when the human asked for it.
-  Status changes and comments go to a `general-purpose` `haiku` mechanics
-  subagent, one exact action per call; you write the comment text yourself.
+- A tracker is written to (status, comment) only in mode `automate`, with the
+  status names from the settings. Status changes and comments go to a
+  `general-purpose` `haiku` mechanics subagent, one exact action per call; you
+  write the comment text yourself.
 
 Create the task directory and `state.md` (with `Run: <project-key>/<run-id>`) per [task-files.md](references/task-files.md).
 
@@ -85,9 +99,11 @@ Record inputs, file ownership and blockers of every stream in your run file.
 Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
 [briefs.md](references/briefs.md). Models: [roles-and-models.md](references/roles-and-models.md).
 
-1. Research: `orchestrator:scout`, read-only. Skip for small tasks.
+1. Research: `orchestrator:scout`, read-only. Skip for small tasks, or when
+   the settings switch it off.
 2. Plan: `orchestrator:planner` writes `01-plan.md` with complexity class and
    reason, role/model table, files, steps, checks, risks, estimated diff size.
+   Its brief carries the settings path: it builds the table from them.
 3. Approval: retell the plan in chat (essence, steps, files, class and why,
    checks) and give the path. A bare link is not enough. Remarks go to the same
    planner with `SendMessage`, addressed by its agent id from `state.md`, never
@@ -96,16 +112,17 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
    stacked task branches from its predecessor's branch only after the
    predecessor's `publish`.
 5. Implement: `orchestrator:implementer`, goal `implementation`, in the
-   background. The diff stays uncommitted until the review is clean.
+   background. The diff stays uncommitted until the review is clean. Writing
+   custom roles run after it, one at a time (see "Custom roles").
 6. Review: a fresh `orchestrator:reviewer` per [code-review](../code-review/SKILL.md).
    Save its report verbatim as `review-N.md`. Tell the human only the verdict
    line (`APPROVE (<n> findings)`, `REQUEST CHANGES (<n> findings)` or
-   `BLOCKED (<n> findings): <reason>`). If `changes-N.md` lists screenshots, run `orchestrator:visual-checker`
-   in parallel.
+   `BLOCKED (<n> findings): <reason>`). If `changes-N.md` lists screenshots,
+   run `orchestrator:visual-checker` in parallel; switched off: tell the human the screenshots are unchecked.
 7. Fixes: a new implementer, goal `review fixes`, with the next pass number
-   gets only the paths to `review-N.md` and `visual-N.md`. Then a focused
-   re-review.
-8. Tests: only when the human asks. `orchestrator:tester` writes test code into
+   gets only the paths to `review-N.md`, `visual-N.md` and each
+   `custom-<name>-N.md` with `REQUEST CHANGES`. Then a focused re-review.
+8. Tests: only when the human asks, and not when the tester is switched off. `orchestrator:tester` writes test code into
    the worktree, so it joins the diff: have the tests run (a `general-purpose`
    `haiku` subagent, or an implementer pass `review fixes` if they fail), then
    a focused re-review before `publish`.
@@ -126,6 +143,20 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
 12. Merge only when the human explicitly asks: a new implementer, goal `merge`
     (with no code host a local merge). Remove the worktree after the merge, only
     if the human agrees.
+
+## Custom roles
+
+They come from `custom_roles` in the settings; rules in
+[workflow.md](references/workflow.md), "Custom roles". Pass the role's `model`
+and `effort` on the `Agent` call and record it in `state.md` as `custom:<name>`.
+Hook points:
+
+- `research`: after the scout; the planner gets the output.
+- `plan`: after `01-plan.md`, before the retell; retell its notes with the plan.
+- writing role (`writes: true`, phase `implementation`): after the implementer
+  pass, strictly in sequence, before the review.
+- `review`: in parallel with the reviewer, on the same diff.
+- `publish`: a gate after the clean review and the size check.
 
 ## Quality control
 
@@ -171,7 +202,11 @@ Stop and return to the last confirmed checkpoint if you notice any of these:
 - a plan retold as a bare link;
 - merge without the human's explicit request;
 - a stacked branch created before its predecessor's `publish`;
-- a task owned by another active run touched without the human's word.
+- a task owned by another active run touched without the human's word;
+- settings written before the human answered, or a role used that the settings
+  switch off;
+- a writing custom role running at the same time as another writer of its
+  worktree, or a review started before the writing roles finished.
 
 Project knowledge does not belong in this plugin. Each subagent reads it from
 the target repository (`AGENTS.md`, `CLAUDE.md`, README).
