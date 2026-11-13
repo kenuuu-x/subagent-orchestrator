@@ -180,6 +180,9 @@ Hook points:
   without `model`, and without the `Task directory:` line in the brief.
 - Write `settings.json` only with the Write tool and the whole file; the hook
   validates it and refuses subagents and Edit.
+- Every implementer, tester and writing custom role brief has the standalone
+  line `Worktree: <absolute path>`: one writer per worktree. Start one writer
+  per message; the hook does not see writers started in the same message.
 - Max 3 implementers in parallel.
 - Status for the human comes from `state.md` files, never from subagent
   transcripts. Do not repeat finished messages. No news is not an error.

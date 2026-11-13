@@ -152,7 +152,8 @@ the file:
     `false` requires one of the other four phases.
   - `model`: `opus`, `sonnet` or `haiku`.
   - `effort`: `low`, `medium`, `high` or `xhigh`.
-- `chat_language`: a language name, for example `German`.
+- `chat_language`: a language name, for example `German`: one line of at most
+  40 characters, made of letters, spaces, hyphens and parentheses.
 - `saved`: the date of the last write, `YYYY-MM-DD`.
 
 ## Use

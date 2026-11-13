@@ -89,6 +89,13 @@ into the dependent branch.
 - Dirty main checkout: leave it alone. Never stash or reset the human's work.
 - One worktree and one branch per writing task. A stacked task branches from its
   predecessor's branch.
+- One writer per worktree at a time. Every implementer brief, every tester
+  brief and every brief of a writing custom role carries the standalone line
+  `Worktree: <absolute path>`; the hook denies a second writer while the first
+  is unfinished (a subagent idle for over 60 minutes no longer counts, for
+  example after a crash). Start one writer per message: writers started in the
+  same message are not seen by the hook. After a resume the old subagents are
+  gone; wait for the time in the deny reason, or ask the human.
 - Record repo, base, worktree, branch and HEAD SHA in `state.md`.
 - You run this git mechanics yourself, since it touches no code:
   `git fetch`, creating the branch and worktree, and `git worktree remove`

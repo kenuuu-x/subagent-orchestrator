@@ -29,10 +29,30 @@ Rules, checked in this order:
    `model`, and the configured `effort` when the call carries `effort`.
    Broken settings found from cwd (no `Task directory:` line) deny only a
    matching custom role call or a call from a session listed in an active run.
+10. One writer per worktree: an `orchestrator:implementer` or
+    `orchestrator:tester` call or a writing custom role call (`writes: true`)
+    needs a standalone `Worktree:` line, and is denied while an unfinished
+    subagent of this session (not scout, planner, reviewer or visual-checker)
+    has a brief with the same `Worktree:` line and was active in the last
+    IDLE_LIMIT_SECONDS. Writers started in the same assistant message are not
+    seen (none of them has a transcript yet).
 11. `Write`, `Edit`, `MultiEdit` or `NotebookEdit` of
     `<home>/projects/*/settings.json` (names compared without case): denied
     from a subagent; `Edit`/`MultiEdit`/`NotebookEdit` denied (rewrite the
     whole file); `Write` denied when the new content fails the settings check.
+    The target is resolved first (cwd, `~`, symlinks); the home is compared
+    without case on a case-insensitive file system. The home is
+    `find_home(cwd)` or a home that the project's repository names.
+12. `Write`, `Edit`, `MultiEdit` or `NotebookEdit` from a read-only custom role
+    (`writes: false`; found from `agent_id`, its transcript brief and the
+    settings) outside its trusted task directory is denied. Bash writes are
+    not covered.
+
+Trusted home: rules 5-12 take the home from `find_home(event cwd)`. A brief's
+`Task directory:` in another home is trusted only when the repository in that
+project's settings names that home (`repo_names_home`). Any other home is
+denied for `orchestrator:*` calls and ignored (cwd lookup instead) for other
+calls.
 
 Any unexpected error allows the call: the hook must never break the session.
 Every known bad state is an explicit deny with a reason that says how to fix it.
@@ -42,12 +62,12 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     import orchestrator_settings as settings_lib
-except Exception:  # fail open: rules 5-11 are skipped without the module
+except Exception:  # fail open: rules 5-12 are skipped without the module
     settings_lib = None
 
 CONTEXT_LIMIT = 200_000
@@ -56,6 +76,12 @@ IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 IMPLEMENTER = "orchestrator:implementer"
 PLUGIN_PREFIX = "orchestrator:"
 VISUAL_CHECKER = ("orchestrator:visual-checker", "visual-checker")
+# Plugin roles that never write in a worktree; they do not hold the writer lock.
+READ_ONLY_PLUGIN_ROLES = (
+    "orchestrator:scout", "orchestrator:planner", "orchestrator:reviewer", "orchestrator:visual-checker",
+)
+# Plugin roles that write in a worktree; rule 10 checks their calls.
+WRITING_PLUGIN_ROLES = {IMPLEMENTER: "An implementer", "orchestrator:tester": "A tester"}
 OPTIONAL_ROLES = ("scout", "tester", "visual-checker")
 SETUP_HINT = "run the setup interview (setup.md or /orchestrator:setup) before any subagent"
 HARD_MARKER = re.compile(
@@ -169,13 +195,25 @@ def check_plugin_agent(event, tool_input, subagent_type, prompt):
     if settings_lib is None:
         return
     # Rule 5.
-    task = settings_lib.task_dir_from_brief(prompt)
+    cwd = event_cwd(event)
+    task, home = settings_lib.trusted_task(prompt, cwd)
     if task is None:
         found = settings_lib.task_dir_line(prompt)
         got = f" (found {found!r})" if found else ""
         deny(
             f"The brief has no task directory in the project layout{got}: start the brief with "
             "Task directory: <home>/projects/<key>/tasks/<id> (absolute path, see task-files.md)."
+        )
+    if not task["trusted"]:
+        no_settings = ""
+        if settings_lib.load_settings(task["project_dir"])[1]:
+            no_settings = ", or that project has no valid settings.json yet: run /orchestrator:setup"
+        deny(
+            f"Task directory is outside the work home: {task['task_dir']} is not under {home}/projects, "
+            f"and the repository in {task['project_dir']}/settings.json does not name {task['home']}. "
+            f"The hook's work home for this session (cwd {cwd}) is {home}: start the session in the "
+            f"repository whose CLAUDE.md names {task['home']}, or set SUBAGENT_ORCHESTRATOR_HOME"
+            f"{no_settings}."
         )
     # Rule 6.
     project = task["project_dir"]
@@ -188,7 +226,8 @@ def check_plugin_agent(event, tool_input, subagent_type, prompt):
     # Rule 7.
     session_id = event.get("session_id")
     if isinstance(session_id, str) and session_id:
-        if not settings_lib.active_runs(task["home"], session_id):
+        homes = [task["home"]] + ([] if settings_lib.same_path(task["home"], home) else [home])
+        if not any(settings_lib.active_runs(h, session_id) for h in homes):
             runs = os.path.join(task["home"], "projects", "<project-key>", "runs", "<run-id>.md")
             deny(
                 f"This session ({session_id}) is not linked to an active run: add {session_id} to the "
@@ -201,6 +240,128 @@ def check_plugin_agent(event, tool_input, subagent_type, prompt):
             f"{subagent_type} is switched off in roles_off of {path}: skip this role, "
             "or change the setting with /orchestrator:setup."
         )
+    # Rule 10.
+    if subagent_type in WRITING_PLUGIN_ROLES:
+        check_one_writer(event, prompt, WRITING_PLUGIN_ROLES[subagent_type])
+
+
+def event_cwd(event):
+    cwd = event.get("cwd")
+    return cwd if isinstance(cwd, str) and cwd else os.getcwd()
+
+
+def first_user_text(transcript):
+    """Text of the first user message of a transcript (a subagent's brief)."""
+    try:
+        with open(transcript, encoding="utf-8", errors="ignore") as lines:
+            for line in lines:
+                try:
+                    entry = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(entry, dict) or entry.get("type") != "user":
+                    continue
+                content = (entry.get("message") or {}).get("content")
+                if isinstance(content, list):
+                    content = "\n".join(
+                        str(part.get("text") or "") for part in content
+                        if isinstance(part, dict) and part.get("type") == "text"
+                    )
+                return content if isinstance(content, str) else ""
+    except OSError:
+        return ""
+    return ""
+
+
+def last_activity(transcript):
+    """Time of the last timestamped entry (read from the tail), else mtime."""
+    try:
+        size = os.path.getsize(transcript)
+        with open(transcript, "rb") as handle:
+            handle.seek(max(0, size - 65536))
+            tail = handle.read().decode("utf-8", errors="ignore")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        stamp = parse_time(entry.get("timestamp")) if isinstance(entry, dict) else None
+        if stamp:
+            return stamp
+    try:
+        return datetime.fromtimestamp(os.path.getmtime(transcript), timezone.utc)
+    except OSError:
+        return None
+
+
+def subagent_dir(event):
+    transcript = event.get("transcript_path")
+    if not isinstance(transcript, str) or not transcript.endswith(".jsonl"):
+        return None
+    return os.path.join(transcript[: -len(".jsonl")], "subagents")
+
+
+def busy_writer(event, worktree):
+    """`(agent id, agent type, last activity)` of an unfinished subagent of
+    this session whose brief has the same `Worktree:` line, or None."""
+    folder = subagent_dir(event)
+    try:
+        names = sorted(os.listdir(folder)) if folder else []
+    except OSError:
+        return None
+    caller = event.get("agent_id")
+    now = datetime.now(timezone.utc)
+    for name in names:
+        if not (name.startswith("agent-") and name.endswith(".meta.json")):
+            continue
+        agent_id = name[len("agent-"): -len(".meta.json")]
+        if agent_id == caller:
+            continue
+        try:
+            with open(os.path.join(folder, name), encoding="utf-8") as handle:
+                meta = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        agent_type = str(meta.get("agentType") or "") if isinstance(meta, dict) else ""
+        if not isinstance(meta, dict) or meta.get("finished") is True or agent_type in READ_ONLY_PLUGIN_ROLES:
+            continue
+        transcript = os.path.join(folder, f"agent-{agent_id}.jsonl")
+        other = settings_lib.brief_line(first_user_text(transcript), "Worktree")
+        if not other or not settings_lib.same_path(other, worktree):
+            continue
+        stamp = last_activity(transcript) or now
+        if (now - stamp).total_seconds() <= IDLE_LIMIT_SECONDS:
+            return agent_id, agent_type or "unknown type", stamp
+    return None
+
+
+def check_one_writer(event, prompt, who):
+    # Rule 10.
+    worktree = settings_lib.brief_line(prompt, "Worktree")
+    if not worktree or not os.path.isabs(os.path.expanduser(worktree)):
+        deny(
+            f"{who} writes in a worktree: add the standalone line 'Worktree: <absolute path>' to the "
+            "brief, so the hook can keep one writer per worktree."
+        )
+    busy = busy_writer(event, worktree)
+    if busy:
+        agent_id, agent_type, stamp = busy
+        limit = IDLE_LIMIT_SECONDS // 60
+        idle = int((datetime.now(timezone.utc) - stamp).total_seconds() // 60)
+        free = (stamp + timedelta(seconds=IDLE_LIMIT_SECONDS)).astimezone()
+        deny(
+            f"Only one writer per worktree: subagent {agent_id} ({agent_type}) of this session is still "
+            f"working in {worktree} (last activity {clock(stamp)}, {idle} min ago). Wait for it to finish "
+            f"or stop it. After a resume the old subagent is gone and cannot be stopped: wait until "
+            f"{clock(free)} ({limit} min after its last activity), or ask the human."
+        )
+
+
+def clock(stamp):
+    """Local time with offset, for deny reasons."""
+    return stamp.astimezone().strftime("%Y-%m-%d %H:%M %Z")
 
 
 def model_family(model):
@@ -215,17 +376,18 @@ def settings_for_call(event, prompt):
     """Settings of the project a non-plugin call belongs to, as a dict with
     `path`, `data`, `errors`, `home` and `via_cwd`, or None when the call is not
     tied to any project with settings."""
-    task = settings_lib.task_dir_from_brief(prompt)
+    cwd = event_cwd(event)
+    task, home = settings_lib.trusted_task(prompt, cwd)
+    if task is not None and not task["trusted"]:
+        task = None  # a task directory outside the trusted home: use the cwd lookup
     if task is not None:
-        project, home = task["project_dir"], task["home"]
+        project = task["project_dir"]
         if not os.path.exists(settings_lib.settings_path(project)):
             return None
     else:
-        cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else os.getcwd()
         repo = settings_lib.main_checkout(cwd)
         if not repo:
             return None
-        home = settings_lib.find_home(cwd)
         project, error = settings_lib.project_dir(home, repo)
         if error:
             return {"path": None, "data": None, "errors": [error], "home": home, "via_cwd": True}
@@ -287,13 +449,54 @@ def check_custom_role(event, tool_input, subagent_type, prompt):
     model = model_family(str(tool_input.get("model") or ""))
     has_effort = "effort" in tool_input
     effort = str(tool_input.get("effort") or "").lower()
-    for role in matched:
-        if model == role.get("model") and (not has_effort or effort == role.get("effort")):
-            return
-    wanted = ", ".join(f"{r.get('name')}: model {r.get('model')}, effort {r.get('effort')}" for r in matched)
+    fitting = [
+        r for r in matched
+        if model == r.get("model") and (not has_effort or effort == r.get("effort"))
+    ]
+    if not fitting:
+        wanted = ", ".join(f"{r.get('name')}: model {r.get('model')}, effort {r.get('effort')}" for r in matched)
+        deny(
+            f"A custom role call must use the model and effort from {path} ({wanted}). "
+            "Pass both explicitly on the Agent call."
+        )
+    # Rule 10.
+    writers = [r for r in fitting if r.get("writes") is True]
+    if writers:
+        check_one_writer(event, prompt, f"The writing custom role {writers[0].get('name')}")
+
+
+def check_read_only_role_write(event, tool_input):
+    # Rule 12.
+    agent_id = event.get("agent_id")
+    agent_type = str(event.get("agent_type") or "")
+    folder = subagent_dir(event)
+    if not isinstance(agent_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]+", agent_id) or not folder:
+        return
+    if agent_type.startswith(PLUGIN_PREFIX):
+        return
+    brief = first_user_text(os.path.join(folder, f"agent-{agent_id}.jsonl"))
+    if not brief:
+        return
+    found = settings_for_call(event, brief)
+    if found is None or not isinstance(found["data"], dict):
+        return
+    matched = matching_roles(found["data"], agent_type, brief)
+    if not matched or any(r.get("writes") is not False for r in matched):
+        return
+    target = tool_input.get("file_path") or tool_input.get("notebook_path")
+    if not isinstance(target, str) or not target:
+        return
+    cwd = event_cwd(event)
+    task, _ = settings_lib.trusted_task(brief, cwd)
+    if task is not None and task["trusted"] and settings_lib.is_inside(target, task["task_dir"], cwd):
+        return
+    names = ", ".join(str(r.get("name")) for r in matched)
+    where = task["task_dir"] if task is not None and task["trusted"] else (
+        "its task directory (its brief has no Task directory line in the work home)"
+    )
     deny(
-        f"A custom role call must use the model and effort from {path} ({wanted}). "
-        "Pass both explicitly on the Agent call."
+        f"The custom role {names} is read-only (writes: false in {found['path']}): it writes only "
+        f"inside {where}, not {target}. Put its notes into <task dir>/custom-<name>-N.md."
     )
 
 
@@ -303,15 +506,21 @@ def check_settings_write(event, tool):
     if not isinstance(tool_input, dict):
         return
     target = tool_input.get("file_path") or tool_input.get("notebook_path")
-    if not isinstance(target, str) or os.path.basename(target).lower() != settings_lib.SETTINGS_FILE:
+    if not isinstance(target, str) or not target:
         return
-    target = os.path.abspath(os.path.expanduser(target))
+    # Resolve first (cwd, ~, symlinks), then check the name, so a symlink or a
+    # case variant of the home cannot hide the settings file.
+    cwd = event_cwd(event)
+    target = os.path.realpath(os.path.join(cwd, os.path.expanduser(target)))
+    if os.path.basename(target).lower() != settings_lib.SETTINGS_FILE:
+        return
     projects = os.path.dirname(os.path.dirname(target))
     if os.path.basename(projects).lower() != "projects":
         return
-    cwd = event.get("cwd") if isinstance(event.get("cwd"), str) else os.getcwd()
-    home = settings_lib.find_home(cwd)
-    if os.path.realpath(os.path.dirname(projects)) != os.path.realpath(home):
+    home = os.path.dirname(projects)
+    if not settings_lib.same_path(home, settings_lib.find_home(cwd)) and not written_home_named(
+        os.path.dirname(target), tool_input
+    ):
         return
     if event.get("agent_type"):
         deny(f"Only the orchestrator writes {target}; a subagent must not change the settings.")
@@ -327,6 +536,19 @@ def check_settings_write(event, tool):
             f"The new {target} breaks the settings rules of setup.md: " + "; ".join(errors)
             + ". Write the instruction files first, then the settings."
         )
+
+
+def written_home_named(project, tool_input):
+    """Rule 11 outside the cwd home: the home counts when the repository in
+    the present settings file or in the new content names it."""
+    if settings_lib.repo_names_home(project):
+        return True
+    try:
+        data = json.loads(str(tool_input.get("content") or ""))
+    except ValueError:
+        return False
+    repo = data.get("repo") if isinstance(data, dict) else None
+    return isinstance(repo, str) and settings_lib.repo_names_home(project, repo)
 
 
 def check_read(event):
@@ -357,6 +579,8 @@ def main():
             check_read(event)
         elif tool in ("Write", "Edit", "MultiEdit", "NotebookEdit") and settings_lib is not None:
             check_settings_write(event, tool)
+            if isinstance(event.get("tool_input"), dict):
+                check_read_only_role_write(event, event["tool_input"])
     except SystemExit:
         raise
     except Exception:  # fail open: the hook must not break the session

@@ -19,7 +19,8 @@ Fails when:
 - a settings marker (path, language rule, custom-roles rule) is missing from
   the spec, the skill, the setup reference or the README;
 - the settings example in the setup reference fails `validate_settings()`;
-- the PreToolUse matcher does not cover the settings-file writes.
+- the PreToolUse matcher does not cover the settings-file writes;
+- a hook command runs a missing script.
 """
 
 import json
@@ -302,6 +303,17 @@ def check_settings_matcher():
             fail(HOOKS / "hooks.json", f"PreToolUse matcher does not cover {tool}")
 
 
+def check_hook_scripts():
+    """Every hook command runs a script that exists."""
+    hooks = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8")).get("hooks", {})
+    for event, entries in hooks.items():
+        for entry in entries:
+            for hook in entry.get("hooks", []):
+                for name in re.findall(r"\$\{CLAUDE_PLUGIN_ROOT\}/([^\"\s]+)", hook.get("command", "")):
+                    if not (PLUGIN / name).is_file():
+                        fail(HOOKS / "hooks.json", f"{event} runs a missing script {name}")
+
+
 def main():
     check_forbidden()
     check_stale_paths()
@@ -314,6 +326,7 @@ def main():
     check_markers()
     check_settings_example()
     check_settings_matcher()
+    check_hook_scripts()
     if errors:
         print("\n".join(errors))
         print(f"\n{len(errors)} contract error(s)")
