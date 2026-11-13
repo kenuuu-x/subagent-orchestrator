@@ -1,11 +1,14 @@
 # Code host: GitLab
 
-Use this when the repository's `origin` is on GitLab (gitlab.com or a
-self-managed host) and the `glab` CLI is logged in. GitLab calls a pull request
-a merge request (MR); this plugin keeps the words "PR" and "pull request". Run
-the commands in the task worktree. Replace `<...>` placeholders. `<iid>` is the
-MR number shown in the MR URL. In API paths `:fullpath` is filled by `glab`
-from the repository of the current directory.
+Use this when `code_host` is `gitlab` and the `glab` CLI is logged in. Then the
+repository's `origin` is on GitLab: gitlab.com or a self-managed host.
+
+GitLab calls a pull request a merge request (MR). This plugin keeps the words
+"PR" and "pull request".
+
+Run the commands in the task worktree. Replace `<...>` placeholders. `<iid>` is
+the MR number shown in the MR URL. In API paths `glab` fills `:fullpath` from
+the repository of the current directory.
 
 ## Check access
 

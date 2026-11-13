@@ -18,7 +18,8 @@ Fails when:
   adapters, the setup reference, the settings hook module and the README;
 - a settings marker (path, language rule, custom-roles rule) is missing from
   the spec, the skill, the setup reference or the README;
-- the settings example in the setup reference fails `validate_settings()`.
+- the settings example in the setup reference fails `validate_settings()`;
+- the PreToolUse matcher does not cover the settings-file writes.
 """
 
 import json
@@ -291,6 +292,16 @@ def check_settings_example():
                 fail(path, f"settings example: {error}")
 
 
+def check_settings_matcher():
+    """The PreToolUse matcher covers every tool that can change a settings
+    file, so the hook can check the write."""
+    hooks = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8"))
+    matchers = [entry.get("matcher", "") for entry in hooks.get("hooks", {}).get("PreToolUse", [])]
+    for tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+        if not any(tool in matcher.split("|") for matcher in matchers):
+            fail(HOOKS / "hooks.json", f"PreToolUse matcher does not cover {tool}")
+
+
 def main():
     check_forbidden()
     check_stale_paths()
@@ -302,6 +313,7 @@ def main():
     check_role_tables()
     check_markers()
     check_settings_example()
+    check_settings_matcher()
     if errors:
         print("\n".join(errors))
         print(f"\n{len(errors)} contract error(s)")

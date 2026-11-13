@@ -2,6 +2,7 @@
 """Behaviour of plugins/orchestrator/hooks/subagent-guard.py on synthetic events."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -14,11 +15,17 @@ HOOK = ROOT / "plugins/orchestrator/hooks/subagent-guard.py"
 HOOKS_JSON = ROOT / "plugins/orchestrator/hooks/hooks.json"
 
 IMPLEMENTER = "orchestrator:implementer"
+SESSION = "sess-1111"
+
+# Every run uses its own work home, never the real one.
+_EMPTY_HOME = tempfile.TemporaryDirectory()
+HOME_OVERRIDE = {"path": _EMPTY_HOME.name}
 
 
 def run_raw(stdin_text):
+    env = dict(os.environ, SUBAGENT_ORCHESTRATOR_HOME=HOME_OVERRIDE["path"], PYTHONDONTWRITEBYTECODE="1")
     result = subprocess.run(
-        [sys.executable, str(HOOK)], input=stdin_text, capture_output=True, text=True, timeout=20
+        [sys.executable, str(HOOK)], input=stdin_text, capture_output=True, text=True, timeout=20, env=env
     )
     return result
 
@@ -36,6 +43,87 @@ def decide(event):
 def reason(event):
     out = json.loads(run_raw(json.dumps(event)).stdout)
     return out["hookSpecificOutput"]["permissionDecisionReason"]
+
+
+def settings_data(repo, instructions):
+    return {
+        "version": 1,
+        "repo": str(repo),
+        "tracker": {
+            "type": "none", "name": None, "access": "none", "mcp_server": None,
+            "mode": "read-only", "statuses": None,
+        },
+        "code_host": "github",
+        "roles_off": ["tester"],
+        "custom_roles": [
+            {
+                "name": "security-reviewer", "agent_type": "general-purpose",
+                "instructions": str(instructions), "phase": "review", "writes": False,
+                "model": "opus", "effort": "high",
+            },
+            {
+                "name": "perf-fixer", "agent_type": "perf-agent", "instructions": None,
+                "phase": "implementation", "writes": True, "model": "sonnet", "effort": "medium",
+            },
+        ],
+        "chat_language": "German",
+        "saved": "2026-11-12",
+    }
+
+
+def write_run(home, key, run_id, status, sessions):
+    runs = Path(home) / "projects" / key / "runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / f"{run_id}.md").write_text(
+        f"# Orchestrator run {run_id}\n\n- Run id: {run_id}\n- Project: {key}\n"
+        f"- Status: {status}\n- Sessions: {sessions}\n- Last update: now\n",
+        encoding="utf-8",
+    )
+
+
+class HomeFixture(unittest.TestCase):
+    """A temporary work home: project `app` with valid settings and an active
+    run that lists SESSION; a repository `app` whose main checkout matches."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.tmp = tempfile.TemporaryDirectory()
+        root = Path(cls.tmp.name).resolve()
+        cls.home = root / "home"
+        cls.repo = root / "repos" / "app"
+        (cls.repo / ".git").mkdir(parents=True)
+        cls.project = cls.home / "projects" / "app"
+        cls.instructions = cls.project / "roles" / "security-reviewer.md"
+        cls.instructions.parent.mkdir(parents=True)
+        cls.instructions.write_text("Check security.", encoding="utf-8")
+        cls.settings = cls.project / "settings.json"
+        cls.settings.write_text(json.dumps(settings_data(cls.repo, cls.instructions)), encoding="utf-8")
+        write_run(cls.home, "app", "20261112-1000", "active", f"other-session, {SESSION}")
+        cls.task_dir = cls.project / "tasks" / "gh-1"
+        HOME_OVERRIDE["path"] = str(cls.home)
+
+    @classmethod
+    def tearDownClass(cls):
+        HOME_OVERRIDE["path"] = _EMPTY_HOME.name
+        cls.tmp.cleanup()
+
+    def brief(self, text="Do the work.", task_dir=None):
+        task_dir = self.task_dir if task_dir is None else task_dir
+        return f"Task directory: {task_dir}\nTask: gh-1, test\n{text}"
+
+    def agent(self, subagent_type=IMPLEMENTER, model="opus", prompt="Do the work.", raw=False,
+              session=SESSION, effort=None, cwd=None):
+        tool_input = {"subagent_type": subagent_type, "prompt": prompt if raw else self.brief(prompt)}
+        if model is not None:
+            tool_input["model"] = model
+        if effort is not None:
+            tool_input["effort"] = effort
+        event = {"tool_name": "Agent", "tool_input": tool_input}
+        if session is not None:
+            event["session_id"] = session
+        if cwd is not None:
+            event["cwd"] = str(cwd)
+        return event
 
 
 def write_agent(session_dir, agent_id, agent_type, context, minutes_ago, finished=True):
@@ -67,8 +155,8 @@ class HooksJsonTest(unittest.TestCase):
     def test_registration(self):
         config = json.loads(HOOKS_JSON.read_text(encoding="utf-8"))
         entry = config["hooks"]["PreToolUse"][0]
-        for name in ("SendMessage", "Agent", "Read"):
-            self.assertIn(name, entry["matcher"])
+        for name in ("SendMessage", "Agent", "Read", "Write", "Edit", "MultiEdit", "NotebookEdit"):
+            self.assertIn(name, entry["matcher"].split("|"))
         command = entry["hooks"][0]
         self.assertIn("${CLAUDE_PLUGIN_ROOT}/hooks/subagent-guard.py", command["command"])
         self.assertEqual(command["timeout"], 10)
@@ -156,13 +244,7 @@ class SendMessageTest(unittest.TestCase):
         self.assertEqual(decide(self.send("a1111111111111111", transcript="/tmp/no-suffix")), "allow")
 
 
-class AgentTest(unittest.TestCase):
-    def agent(self, subagent_type=IMPLEMENTER, model="opus", prompt="Do the work."):
-        tool_input = {"subagent_type": subagent_type, "prompt": prompt}
-        if model is not None:
-            tool_input["model"] = model
-        return {"tool_name": "Agent", "tool_input": tool_input}
-
+class AgentTest(HomeFixture):
     def test_opus_without_marker_denied(self):
         event = self.agent()
         self.assertEqual(decide(event), "deny")
@@ -221,15 +303,324 @@ class AgentTest(unittest.TestCase):
     def test_implementer_with_empty_model_denied(self):
         self.assertEqual(decide(self.agent(model="")), "deny")
 
+    def test_plugin_type_without_model_denied(self):
+        # Rule 4: every orchestrator:* call needs a model, not only the implementer.
+        for role in ("orchestrator:planner", "orchestrator:reviewer", "orchestrator:scout"):
+            with self.subTest(role=role):
+                event = self.agent(subagent_type=role, model=None)
+                self.assertEqual(decide(event), "deny")
+                self.assertIn(role + " needs an explicit model", reason(event))
+
     def test_other_type_without_model_allowed(self):
-        self.assertEqual(decide(self.agent(subagent_type="orchestrator:planner", model=None)), "allow")
         self.assertEqual(decide(self.agent(subagent_type="general-purpose", model=None)), "allow")
+        self.assertEqual(decide(self.agent(subagent_type="Explore", model=None, raw=True)), "allow")
 
     def test_other_type_on_opus_allowed(self):
         self.assertEqual(decide(self.agent(subagent_type="orchestrator:planner")), "allow")
 
     def test_general_purpose_allowed(self):
         self.assertEqual(decide(self.agent(subagent_type="general-purpose")), "allow")
+
+
+class SettingsGateTest(HomeFixture):
+    """Rules 5-8 on orchestrator:* calls."""
+
+    def planner(self, **kwargs):
+        kwargs.setdefault("subagent_type", "orchestrator:planner")
+        kwargs.setdefault("model", "opus")
+        return self.agent(**kwargs)
+
+    def project_with(self, key, text):
+        project = self.home / "projects" / key
+        project.mkdir(parents=True, exist_ok=True)
+        if text is not None:
+            (project / "settings.json").write_text(text, encoding="utf-8")
+        return project / "tasks" / "t1"
+
+    def test_valid_call_allowed(self):
+        self.assertEqual(decide(self.planner()), "allow")
+        self.assertEqual(decide(self.agent(model="sonnet")), "allow")
+
+    def test_missing_task_directory_denied(self):
+        event = self.planner(prompt="Plan the task.", raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("Task directory: <home>/projects/<key>/tasks/<id>", reason(event))
+
+    def test_legacy_task_directory_denied(self):
+        event = self.planner(prompt="Task directory: /h/.subagent-orchestrator/tasks/gh-1\nPlan.", raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("found '/h/.subagent-orchestrator/tasks/gh-1'", reason(event))
+
+    def test_missing_task_directory_denied_for_implementer(self):
+        self.assertEqual(decide(self.agent(model="sonnet", prompt="Work.", raw=True)), "deny")
+
+    def test_project_without_settings_denied(self):
+        task = self.project_with("nosettings", None)
+        event = self.planner(prompt=self.brief(task_dir=task), raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("run the setup interview (setup.md or /orchestrator:setup) before any subagent", reason(event))
+
+    def test_unknown_project_denied(self):
+        task = self.home / "projects" / "ghost" / "tasks" / "t1"
+        self.assertIn("setup interview", reason(self.planner(prompt=self.brief(task_dir=task), raw=True)))
+
+    def test_malformed_settings_denied(self):
+        task = self.project_with("broken", "{not json")
+        event = self.planner(prompt=self.brief(task_dir=task), raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("not valid JSON", reason(event))
+        self.assertIn("re-run setup", reason(event))
+
+    def test_schema_error_denied(self):
+        data = settings_data(self.repo, self.instructions)
+        data["code_host"] = "svn"
+        task = self.project_with("schema", json.dumps(data))
+        event = self.planner(prompt=self.brief(task_dir=task), raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("code_host", reason(event))
+
+    def test_missing_instruction_file_denied(self):
+        data = settings_data(self.repo, self.home / "nowhere.md")
+        task = self.project_with("noinstr", json.dumps(data))
+        event = self.planner(prompt=self.brief(task_dir=task), raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("does not exist", reason(event))
+
+    def test_unlinked_session_denied_with_id(self):
+        event = self.planner(session="sess-unknown-42")
+        self.assertEqual(decide(event), "deny")
+        text = reason(event)
+        self.assertIn("add sess-unknown-42 to the Sessions line of your run file", text)
+
+    def test_finished_run_does_not_link(self):
+        write_run(self.home, "app", "20261101-0900", "finished", "sess-old")
+        self.assertEqual(decide(self.planner(session="sess-old")), "deny")
+
+    def test_run_in_other_project_links(self):
+        write_run(self.home, "elsewhere", "20261112-1200", "active", "sess-other-project")
+        self.assertEqual(decide(self.planner(session="sess-other-project")), "allow")
+
+    def test_no_session_id_skips_link_rule(self):
+        self.assertEqual(decide(self.planner(session=None)), "allow")
+        self.assertEqual(decide(self.planner(session="")), "allow")
+
+    def test_role_switched_off_denied(self):
+        event = self.agent(subagent_type="orchestrator:tester", model="sonnet")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("switched off in roles_off", reason(event))
+        self.assertIn(str(self.settings), reason(event))
+
+    def test_role_switched_on_allowed(self):
+        for role in ("scout", "visual-checker", "reviewer"):
+            with self.subTest(role=role):
+                self.assertEqual(decide(self.agent(subagent_type="orchestrator:" + role, model="sonnet")), "allow")
+
+    def test_order_model_before_task_directory(self):
+        event = self.planner(model=None, prompt="no brief", raw=True)
+        self.assertIn("needs an explicit model", reason(event))
+
+
+class CustomRoleTest(HomeFixture):
+    """Rule 9."""
+
+    def role_call(self, model="opus", effort="high", **kwargs):
+        kwargs.setdefault("subagent_type", "general-purpose")
+        kwargs.setdefault("prompt", f"Instructions: {self.instructions}\nReview the diff.")
+        return self.agent(model=model, effort=effort, **kwargs)
+
+    def test_matching_model_and_effort_allowed(self):
+        self.assertEqual(decide(self.role_call()), "allow")
+        self.assertEqual(decide(self.role_call(model="claude-opus-4-1")), "allow")
+
+    def test_effort_optional(self):
+        self.assertEqual(decide(self.role_call(effort=None)), "allow")
+
+    def test_wrong_model_denied(self):
+        event = self.role_call(model="sonnet")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("security-reviewer: model opus, effort high", reason(event))
+
+    def test_missing_model_denied(self):
+        self.assertEqual(decide(self.role_call(model=None)), "deny")
+
+    def test_wrong_effort_denied(self):
+        self.assertEqual(decide(self.role_call(effort="low")), "deny")
+
+    def test_by_agent_type(self):
+        call = {"subagent_type": "perf-agent", "prompt": "Fix it."}
+        self.assertEqual(decide(self.role_call(model="sonnet", effort="medium", **call)), "allow")
+        self.assertEqual(decide(self.role_call(model="opus", effort="medium", **call)), "deny")
+        self.assertEqual(decide(self.role_call(model="sonnet", effort="high", **call)), "deny")
+
+    def test_plain_general_purpose_allowed(self):
+        self.assertEqual(decide(self.role_call(model=None, effort=None, prompt="Search for X.")), "allow")
+
+    def test_plugin_role_mentioning_instructions_is_not_a_custom_role(self):
+        event = self.role_call(subagent_type="orchestrator:reviewer", model="sonnet", effort="low")
+        self.assertEqual(decide(event), "allow")
+
+    def test_cwd_lookup_without_task_directory(self):
+        prompt = f"Instructions: {self.instructions}\nReview."
+        sub = self.repo / "src"
+        sub.mkdir(exist_ok=True)
+        good = self.role_call(prompt=prompt, raw=True, cwd=sub)
+        self.assertEqual(decide(good), "allow")
+        bad = self.role_call(model="haiku", prompt=prompt, raw=True, cwd=sub)
+        self.assertEqual(decide(bad), "deny")
+
+    def test_cwd_outside_projects_allowed(self):
+        event = self.role_call(model="haiku", prompt="x", raw=True, cwd=self.home)
+        self.assertEqual(decide(event), "allow")
+
+    def broken_repo(self, name, content):
+        """A repository `name` whose settings file holds `content` (text)."""
+        repo = Path(self.tmp.name).resolve() / "repos" / name
+        (repo / ".git").mkdir(parents=True, exist_ok=True)
+        project = self.home / "projects" / name
+        project.mkdir(parents=True, exist_ok=True)
+        (project / "settings.json").write_text(content, encoding="utf-8")
+        return repo
+
+    def test_cwd_lookup_broken_settings_unlinked_session_allowed(self):
+        repo = self.broken_repo("broken-repo", "{bad")
+        for subagent_type in ("general-purpose", "Explore", "perf-agent"):
+            with self.subTest(subagent_type=subagent_type):
+                event = self.role_call(subagent_type=subagent_type, model=None, prompt="Search.",
+                                       raw=True, cwd=repo, session="unrelated-session")
+                self.assertEqual(decide(event), "allow")
+        no_session = self.role_call(model=None, prompt="Search.", raw=True, cwd=repo, session=None)
+        self.assertEqual(decide(no_session), "allow")
+
+    def test_cwd_lookup_broken_settings_linked_session_denied(self):
+        repo = self.broken_repo("broken-repo", "{bad")
+        event = self.role_call(model=None, prompt="Search.", raw=True, cwd=repo)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("not valid JSON", reason(event))
+
+    def test_cwd_lookup_schema_invalid_settings(self):
+        data = settings_data(Path(self.tmp.name).resolve() / "repos" / "invalid-repo", self.instructions)
+        data["extra"] = True
+        repo = self.broken_repo("invalid-repo", json.dumps(data))
+        plain = self.role_call(model=None, prompt="Search.", raw=True, cwd=repo, session="unrelated-session")
+        self.assertEqual(decide(plain), "allow")
+        linked = self.role_call(model=None, prompt="Search.", raw=True, cwd=repo)
+        self.assertEqual(decide(linked), "deny")
+        self.assertIn("extra: unknown key", reason(linked))
+        by_type = self.role_call(subagent_type="perf-agent", model="sonnet", effort="medium",
+                                 prompt="Fix it.", raw=True, cwd=repo, session="unrelated-session")
+        self.assertEqual(decide(by_type), "deny")
+        self.assertIn("extra: unknown key", reason(by_type))
+        by_path = self.role_call(prompt=f"Instructions: {self.instructions}\nReview.", raw=True,
+                                 cwd=repo, session="unrelated-session")
+        self.assertEqual(decide(by_path), "deny")
+
+    def test_cwd_lookup_wrongly_typed_roles_do_not_crash(self):
+        data = settings_data(Path(self.tmp.name).resolve() / "repos" / "typed-repo", self.instructions)
+        data["custom_roles"] = [5, {"agent_type": 7, "instructions": ["x"]}, "perf-agent"]
+        repo = self.broken_repo("typed-repo", json.dumps(data))
+        event = self.role_call(subagent_type="perf-agent", model=None, prompt="Fix it.", raw=True,
+                               cwd=repo, session="unrelated-session")
+        self.assertEqual(decide(event), "allow")
+
+    def test_task_directory_with_invalid_settings_denied(self):
+        project = self.home / "projects" / "invalid-gp"
+        project.mkdir(parents=True, exist_ok=True)
+        (project / "settings.json").write_text(json.dumps({"version": 1}), encoding="utf-8")
+        event = self.role_call(prompt=self.brief(task_dir=project / "tasks" / "t1"), raw=True)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("re-run setup", reason(event))
+
+    def test_task_directory_without_settings_allowed(self):
+        event = self.role_call(model="haiku", prompt=self.brief(task_dir=self.home / "projects" / "none" / "tasks" / "t"), raw=True)
+        self.assertEqual(decide(event), "allow")
+
+
+class SettingsWriteTest(HomeFixture):
+    """Rule 11."""
+
+    def write(self, content, tool="Write", path=None, agent_type=None, cwd=None):
+        path = str(self.settings) if path is None else str(path)
+        key = "notebook_path" if tool == "NotebookEdit" else "file_path"
+        tool_input = {key: path}
+        if tool == "Write":
+            tool_input["content"] = content if isinstance(content, str) else json.dumps(content)
+        else:
+            tool_input.update({"old_string": "a", "new_string": "b"})
+        event = {"tool_name": tool, "tool_input": tool_input, "session_id": SESSION}
+        if agent_type:
+            event["agent_type"] = agent_type
+        if cwd:
+            event["cwd"] = str(cwd)
+        return event
+
+    def valid(self):
+        return settings_data(self.repo, self.instructions)
+
+    def test_valid_write_allowed(self):
+        self.assertEqual(decide(self.write(self.valid())), "allow")
+
+    def test_new_project_settings_validated(self):
+        target = self.home / "projects" / "fresh" / "settings.json"
+        self.assertEqual(decide(self.write(self.valid(), path=target)), "allow")
+        bad = self.valid()
+        bad["roles_off"] = ["planner"]
+        event = self.write(bad, path=target)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("roles_off[0]", reason(event))
+
+    def test_invalid_write_denied(self):
+        bad = self.valid()
+        bad["extra"] = True
+        event = self.write(bad)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("extra: unknown key", reason(event))
+
+    def test_not_json_denied(self):
+        event = self.write("{oops")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("not valid JSON", reason(event))
+
+    def test_missing_instruction_file_denied(self):
+        data = settings_data(self.repo, self.home / "missing.md")
+        event = self.write(data)
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("instruction files first", reason(event))
+
+    def test_edit_denied(self):
+        for tool in ("Edit", "MultiEdit", "NotebookEdit"):
+            with self.subTest(tool=tool):
+                event = self.write(None, tool=tool)
+                self.assertEqual(decide(event), "deny")
+                self.assertIn("rewrite the whole file with Write", reason(event))
+
+    def test_name_case_variants_checked(self):
+        for path in (
+            self.project / "Settings.json",
+            self.project / "SETTINGS.JSON",
+            self.home / "Projects" / "app" / "settings.json",
+        ):
+            with self.subTest(path=path):
+                event = self.write("{oops", path=path)
+                self.assertEqual(decide(event), "deny")
+                self.assertIn("not valid JSON", reason(event))
+                self.assertEqual(decide(self.write(None, tool="Edit", path=path)), "deny")
+
+    def test_subagent_denied(self):
+        event = self.write(self.valid(), agent_type="orchestrator:implementer")
+        self.assertEqual(decide(event), "deny")
+        self.assertIn("subagent must not change the settings", reason(event))
+
+    def test_other_files_allowed(self):
+        others = (
+            self.home / "projects" / "app" / "runs" / "settings.json",
+            self.home / "projects" / "app" / "notes.json",
+            self.repo / "settings.json",
+            Path(self.tmp.name) / "projects" / "app" / "settings.json",
+        )
+        for path in others:
+            with self.subTest(path=path):
+                self.assertEqual(decide(self.write("junk", path=path)), "allow")
+                self.assertEqual(decide(self.write(None, tool="Edit", path=path)), "allow")
 
 
 class ReadTest(unittest.TestCase):
@@ -299,6 +690,8 @@ class FailOpenTest(unittest.TestCase):
 
     def test_wrong_field_types(self):
         self.assert_allows(json.dumps({"tool_name": "Agent", "tool_input": "text"}))
+        self.assert_allows(json.dumps({"tool_name": "Write", "tool_input": None}))
+        self.assert_allows(json.dumps({"tool_name": "Edit", "tool_input": {"file_path": 5}}))
         self.assert_allows(json.dumps({"tool_name": "Read", "tool_input": None, "agent_type": 5}))
 
 

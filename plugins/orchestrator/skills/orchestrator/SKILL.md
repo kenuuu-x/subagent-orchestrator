@@ -53,8 +53,10 @@ Read the chosen adapters when the first task needs them.
 7. Per task, confirm with the human: repository, base branch, task id.
 8. Adapters: take the code-host adapter and the tracker adapter from the
    settings, as [adapters/index.md](references/adapters/index.md) says. Record
-   both in your run file. Subagents cannot open relative plugin links, so each
-   brief carries the absolute path of its adapter.
+   both in your run file. Add your session id to `Sessions` in the run file.
+   The hook denies plugin agent calls from a session that is not listed.
+   Subagents cannot open relative plugin links. So each brief carries the
+   absolute path of its adapter.
 
 ## Language
 
@@ -118,11 +120,13 @@ Details and checkpoints: [workflow.md](references/workflow.md). Brief contents:
    Save its report verbatim as `review-N.md`. Tell the human only the verdict
    line (`APPROVE (<n> findings)`, `REQUEST CHANGES (<n> findings)` or
    `BLOCKED (<n> findings): <reason>`). If `changes-N.md` lists screenshots,
-   run `orchestrator:visual-checker` in parallel; switched off: tell the human the screenshots are unchecked.
+   run `orchestrator:visual-checker` in parallel; switched off: tell the human
+   the screenshots are unchecked.
 7. Fixes: a new implementer, goal `review fixes`, with the next pass number
    gets only the paths to `review-N.md`, `visual-N.md` and each
    `custom-<name>-N.md` with `REQUEST CHANGES`. Then a focused re-review.
-8. Tests: only when the human asks, and not when the tester is switched off. `orchestrator:tester` writes test code into
+8. Tests: only when the human asks, and not when the tester is switched off.
+   `orchestrator:tester` writes test code into
    the worktree, so it joins the diff: have the tests run (a `general-purpose`
    `haiku` subagent, or an implementer pass `review fixes` if they fail), then
    a focused re-review before `publish`.
@@ -172,7 +176,10 @@ Hook points:
 - Address an existing subagent with `SendMessage` by its agent id recorded in
   `state.md`, never by name.
 - Pass `model` and `effort` explicitly on every `Agent` call and write them to
-  `state.md`. That is your route check.
+  `state.md`. That is your route check. The hook denies a plugin agent call
+  without `model`, and without the `Task directory:` line in the brief.
+- Write `settings.json` only with the Write tool and the whole file; the hook
+  validates it and refuses subagents and Edit.
 - Max 3 implementers in parallel.
 - Status for the human comes from `state.md` files, never from subagent
   transcripts. Do not repeat finished messages. No news is not an error.

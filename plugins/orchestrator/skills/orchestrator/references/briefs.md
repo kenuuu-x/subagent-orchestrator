@@ -4,7 +4,8 @@ A subagent sees nothing of your context and cannot open relative plugin links.
 Write everything it needs into the brief. Rules for every brief:
 
 - Start with two lines: `Task directory: <absolute path>` (always
-  `<home>/projects/<project-key>/tasks/<task-id>`) and `Task: <id>, <one-line goal>`.
+  `<home>/projects/<project-key>/tasks/<task-id>`; the hook denies a call
+  without it, for every `orchestrator:*` agent) and `Task: <id>, <one-line goal>`.
 - Always absolute paths. Expand `~`. Plugin files: build them from the plugin
   root recorded in your run file, for example
   `<plugin root>/skills/code-review/SKILL.md`.

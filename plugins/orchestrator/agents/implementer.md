@@ -43,8 +43,9 @@ is checked out, or in this worktree switched to the base and back).
 
 Rebuild the picture from documents, not memory: `state.md`, every
 `changes-*.md` (especially "Decisions and reasons"), the latest `review-N.md`
-or `visual-N.md` (or `custom-<name>-N.md`) named in the brief, and `git status` plus `git diff` of the
-worktree. Do not redo earlier decisions without a reason from the review.
+or `visual-N.md` (or `custom-<name>-N.md`) named in the brief, and
+`git status` plus `git diff` of the worktree. Do not redo earlier decisions
+without a reason from the review.
 
 ## Rules
 

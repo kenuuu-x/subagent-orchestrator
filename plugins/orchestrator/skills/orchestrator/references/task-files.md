@@ -22,7 +22,7 @@
      has tasks); if there is none, the first suffix that does not exist. Run
      the setup interview there ([setup.md](setup.md)).
 
-  The PR 4 hook uses steps 1-3 only: no match means no settings, so run setup.
+  The settings hook uses steps 1-3 only: no match means no settings, so run setup.
 - Settings file: `<home>/projects/<project-key>/settings.json`. Format and
   interview: [setup.md](setup.md).
 - A task directory always lives in the project of its own `Repo:`, and that
@@ -142,8 +142,8 @@ The first block is machine-read: keep the lines exactly as written.
 - `Status` is `active` or `finished`. Set `finished` when the queue is done or
   the human ends the run.
 - `Sessions` lists the ids of the sessions that worked on this run. Append
-  your own session id when you know it; leave the line in place when you do
-  not.
+  your own session id; the hook denies plugin agent calls from a session not
+  listed in an active run file. If the id is unknown, the first denial shows it.
 - A run that spans several repositories lives in the project where it
   started. Each task directory still lives in the project of its own `Repo:`;
   the queue keeps the absolute path of each.
