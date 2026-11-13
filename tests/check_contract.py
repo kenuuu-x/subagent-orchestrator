@@ -20,7 +20,9 @@ Fails when:
   the spec, the skill, the setup reference or the README;
 - the settings example in the setup reference fails `validate_settings()`;
 - the PreToolUse matcher does not cover the settings-file writes;
-- a hook command runs a missing script.
+- a hook command runs a missing script;
+- the context hook is not registered for UserPromptSubmit and SessionStart
+  `compact|resume`.
 """
 
 import json
@@ -314,6 +316,20 @@ def check_hook_scripts():
                         fail(HOOKS / "hooks.json", f"{event} runs a missing script {name}")
 
 
+def check_context_hook():
+    """The context hook is registered for every prompt and for compaction
+    and resume."""
+    hooks = json.loads((HOOKS / "hooks.json").read_text(encoding="utf-8")).get("hooks", {})
+    context = "hooks/orchestrator-context.py"
+    for event, matcher in (("UserPromptSubmit", None), ("SessionStart", "compact|resume")):
+        if not any(
+            entry.get("matcher") == matcher
+            and any(context in hook.get("command", "") for hook in entry.get("hooks", []))
+            for entry in hooks.get(event, [])
+        ):
+            fail(HOOKS / "hooks.json", f"{event} does not run {context} (matcher {matcher})")
+
+
 def main():
     check_forbidden()
     check_stale_paths()
@@ -327,6 +343,7 @@ def main():
     check_settings_example()
     check_settings_matcher()
     check_hook_scripts()
+    check_context_hook()
     if errors:
         print("\n".join(errors))
         print(f"\n{len(errors)} contract error(s)")

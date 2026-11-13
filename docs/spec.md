@@ -56,7 +56,7 @@ rules. Every file in the plugin must agree with it.
 ```
 .claude-plugin/marketplace.json          marketplace "subagent-orchestrator"
 plugins/orchestrator/
-  .claude-plugin/plugin.json             plugin "orchestrator", version 0.1.0
+  .claude-plugin/plugin.json             plugin "orchestrator", version 0.2.0
   commands/orchestrate.md                /orchestrator:orchestrate <tasks>
   commands/setup.md                      /orchestrator:setup [setting to change]
   skills/orchestrator/SKILL.md           entry skill (disable-model-invocation: true)
@@ -87,8 +87,10 @@ plugins/orchestrator/
   agents/visual-checker.md
   hooks/hooks.json
   hooks/subagent-guard.py
+  hooks/orchestrator-context.py
   hooks/orchestrator_settings.py
-tests/test_subagent_guard.py             unittest for the hook
+tests/test_subagent_guard.py             unittest for the guard hook
+tests/test_orchestrator_context.py       unittest for the context hook
 tests/test_orchestrator_settings.py      unittest for the settings module
 tests/check_contract.py                  forbidden words, frontmatter, links, names
 scripts/validate.sh                      runs both tests
@@ -119,8 +121,8 @@ built-in `general-purpose` type.
   string `repo`: stop, show the error, ask the human, never skip it; (4) no
   match: the first settings-less directory whose tasks are empty or all name
   this checkout (ask before adopting one with tasks), else the first missing
-  suffix, and run setup there. The PR 4 hook uses steps 1-3 (no match means
-  no settings: run setup). A task directory always lives in the project of its
+  suffix, and run setup there. The hooks use steps 1-3 (no match means no
+  settings: run setup). A task directory always lives in the project of its
   own `Repo:`; per task, the settings of that project apply, and the chat
   language comes from the project where the run started.
 - Settings file: `<home>/projects/<project-key>/settings.json`. Custom role
@@ -169,7 +171,10 @@ built-in `general-purpose` type.
     `merge`.
 - Worktree: `<repo-parent>/<repo-name>-worktrees/<task-id>/`, branch
   `<type>/<task-id>` where type is `feat`, `fix`, `refactor`, `docs`, `chore`
-  (follow the repository's own convention if it has one).
+  (follow the repository's own convention if it has one). One writer per
+  worktree: every implementer, tester and writing custom role brief carries
+  the standalone line `Worktree: <absolute path>`, and the hook denies a
+  second writer there (rule 10).
 
 ## Adapters
 
@@ -263,7 +268,9 @@ requires every adapter file and every heading.
   never with an implementer or another writer. Its changes stay uncommitted and
   the review runs after the writers. It writes `custom-<name>-N.md` as a change
   journal with the sections of `changes-N.md`, runs the plan's checks, never
-  commits. Its brief carries the standalone line `Worktree: <absolute path>`.
+  commits. Its brief carries the standalone line `Worktree: <absolute path>`
+  (rule 10). A role with `writes: false` writes only inside the task directory
+  (rule 12).
   The interview warns once that writing is normally the implementer's job; the
   human's choice wins.
 - Custom roles are not rows of the shared role table: a rule under the table
@@ -295,8 +302,11 @@ requires every adapter file and every heading.
    background. It runs the
    repo's checks itself and writes `changes-N.md`. Diff stays uncommitted until
    the review is clean. Hard part: a separate short implementer on `opus` only
-   for the listed files. Stuck on `sonnet` (two attempts at the same error, or
-   edits going in circles) → repeat the step with a new `opus` implementer.
+   for the listed files. It and the main implementer run one after the other
+   in the same worktree (one writer per worktree), the pass that the plan puts
+   first going first; by default the hard part goes first. Stuck on `sonnet`
+   (two attempts at the same error, or edits going in circles) → repeat the
+   step with a new `opus` implementer.
    Writing custom roles run after it, one at a time.
 8. Review: fresh `orchestrator:reviewer`, read-only, per `code-review`. First
    line of its report is the verdict: `APPROVE (<n> findings)`,
@@ -436,13 +446,17 @@ plan — the hook blocks it otherwise. The main sonnet brief carries
 ## Hook: `subagent-guard.py`
 
 PreToolUse on `SendMessage|Agent|Read|Write|Edit|MultiEdit|NotebookEdit`.
-The shared settings code is `hooks/orchestrator_settings.py` (stdlib only): `find_home`,
-`main_checkout`, `project_key` and `project_dir` (the lookup of task-files.md,
-steps 1-3), `load_settings` and `validate_settings` (the schema of setup.md,
-then the existence of instruction files), `active_runs` and `parse_run_file`,
-`task_dir_from_brief`. Known bad states get an explicit deny. An unexpected
-exception, or a failed import of that module (rules 5-11 are then skipped),
-allows the call.
+Both hooks share `hooks/orchestrator_settings.py` (stdlib only). It holds
+`find_home`, `main_checkout`, `project_key` and `project_dir` (the lookup of
+task-files.md, steps 1-3), `load_settings` and `validate_settings` (the schema
+of setup.md, then the existence of instruction files), `active_runs` and
+`parse_run_file`, `task_dir_from_brief` and `brief_line`. It also holds the
+path helpers `path_key`, `same_path` and `is_inside` (`~` expanded, relative
+paths joined to the cwd, symlinks resolved, case folded on a case-insensitive
+file system), `trusted_task` and `repo_names_home`.
+
+Known bad states get an explicit deny. An unexpected exception, or a failed
+import of that module (rules 5-12 are then skipped), allows the call.
 
 1. `SendMessage` to an agent whose type is `orchestrator:implementer`, whose
    last turn is finished, and whose transcript context exceeds 200k tokens or
@@ -461,20 +475,32 @@ allows the call.
    (`general-purpose`, `Explore`, other plugins) may read images.
 
 An `Agent` call with an `orchestrator:*` type is checked in the order 4, 2, 5,
-6, 7, 8:
+6, 7, 8, and, for an implementer or a tester, 10:
 
 4. No explicit `model` → deny, reason "pass model and effort explicitly (see
    roles-and-models.md)". It applies to every plugin agent.
 5. The brief has no `Task directory: <home>/projects/<key>/tasks/<id>` line
    (absolute path, optional bullet and backticks; `~` is not expanded) → deny.
+   The home in that line must be the trusted work home, `find_home(cwd)` of the
+   event (symlinks and case variants compared as one path), or a home that the
+   project's repository names: the `repo` of that project's `settings.json` is
+   a main checkout whose project key fits and whose `find_home` is that home
+   (`repo_names_home`). Another home → deny. The brief cannot point the hook
+   at settings it chose. So the hooks find the home from the session's working
+   directory; a `CLAUDE.md` home line works only for a session started inside
+   that repository or for a project whose repository names it. Otherwise, and
+   for runs over repositories with different homes, the human sets
+   `$SUBAGENT_ORCHESTRATOR_HOME`. The deny reason names the cwd and the hook's
+   home: "start the session in the repository whose CLAUDE.md names <task
+   home>, or set SUBAGENT_ORCHESTRATOR_HOME".
 6. The project from that path has no `settings.json` → deny, "run the setup
    interview". A file that is not JSON, breaks the setup.md schema or names a
    missing instruction file → deny with the errors.
 7. When the event has `session_id`: it must be in the `Sessions` line of an
-   active run file (`- Status: active`) in the `runs/` of any project of that
-   home; otherwise deny, the reason carries the id. A run file is parsed by
-   its first `- Status:`, `- Sessions:` and `- Run id:` lines; placeholders
-   like `<session id>` are ignored.
+   active run file (`- Status: active`) in the `runs/` of any project of the
+   brief's home or of the cwd home; otherwise deny, the reason carries the
+   id. A run file is parsed by its first `- Status:`, `- Sessions:` and
+   `- Run id:` lines; placeholders like `<session id>` are ignored.
 8. The role (`scout`, `tester`, `visual-checker`) is in `roles_off` → deny.
 
 9. A custom role call (any other `Agent` call): found by `subagent_type`
@@ -493,27 +519,110 @@ An `Agent` call with an `orchestrator:*` type is checked in the order 4, 2, 5,
      that home. Otherwise allow: a session that does not orchestrate is not
      blocked by broken settings.
 
-Rule 10 (one writer per worktree), rule 12 (read-only custom roles) and the
-context hook come with PR 5.
+10. One writer per worktree. It applies to an `orchestrator:implementer` or
+    `orchestrator:tester` call (after rules 4-8) and to a custom role call
+    whose matched role has `writes: true` (after rule 9). The brief needs a
+    standalone absolute `Worktree: <path>` line (optional bullet and
+    backticks); without it → deny. Also deny when another unfinished
+    subagent of the same session has a brief with the same `Worktree:`
+    (symlinks and case compared) and its last transcript activity is under
+    60 minutes old. The subagent is read
+    from the session's `subagents/agent-<id>.meta.json` (`finished: true` once
+    done) and its transcript. Not counted: the plugin's read-only roles
+    (`scout`, `planner`, `reviewer`, `visual-checker`) and the caller itself.
+    The tester counts: it writes test code into the worktree. A subagent idle
+    for over 60 minutes (for example after a crash) no longer blocks. The deny
+    reason gives the last activity as a local time and the time the lock ends:
+    after a resume the old subagent is gone and cannot be stopped, so the
+    orchestrator waits until then or asks the human.
 
 11. `Write`, `Edit`, `MultiEdit` or `NotebookEdit` of
     `<home>/projects/<key>/settings.json`. The home comes from
-    `find_home(cwd)`. The names `settings.json` and `projects` are compared
-    without case. Other `settings.json` files are not touched.
+    `find_home(cwd)`, or it is a home that the repository in the present file
+    or in the new content names (`repo_names_home`). The names
+    `settings.json` and `projects` are compared without case. Other
+    `settings.json` files are not touched.
     - From a subagent → deny: only the orchestrator writes it.
     - `Edit`, `MultiEdit` and `NotebookEdit` → deny: rewrite the whole file
       with `Write`.
     - `Write` whose content breaks the schema or names a missing instruction
       file → deny. Write the instruction files first, then the settings.
 
-What the hook cannot enforce: that a subagent really runs the model it was
-given (the route check in `state.md` plus the reviewer's finding stand in), the
-`Sessions` entry being genuine (it is a link, not a proof), and a settings
-file changed by `Bash`. The orchestrator is told in its skill to write it only
-with `Write`.
+12. `Write`, `Edit`, `MultiEdit` or `NotebookEdit` from a read-only custom
+    role (`writes: false`) → deny unless the resolved target is inside the
+    task directory of its brief. The role is found from the event's `agent_id`
+    (and a non-plugin `agent_type`): its brief is read from the subagent
+    transcript and its settings from the trusted home. A brief without a
+    `Task directory:` in the work home leaves it no writable place. The
+    reason names the file to use, `custom-<name>-N.md` in the task directory.
+    Runs after rule 11.
+
+Hardening. Rule 11 resolves the target before any check: the path joined to
+the cwd, `~` expanded, symlinks followed. A relative path, a symlink named like
+another file, `..` and a case variant of the home (case-insensitive file
+system) cannot hide a settings write. The same resolution protects rule 12. The
+brief's task directory must lie inside the trusted work home (rule 5). Settings
+for rules 9 and 12 come from that home; a brief in another home is ignored for
+a non-plugin call (the cwd lookup applies) and denied for an `orchestrator:*`
+call.
+
+What the hooks cannot enforce:
+
+- That a subagent really runs the model it was given (the route check in
+  `state.md` plus the reviewer's finding stand in).
+- The `Sessions` entry being genuine (it is a link, not a proof).
+- A settings file changed by `Bash`, and files written by a read-only custom
+  role through `Bash`. The orchestrator is told in its skill to write the
+  settings only with `Write`.
+- Rule 12 needs `agent_id` in the event; without it nothing is checked.
+- After a crashed subagent the worktree lock of rule 10 holds for up to 60
+  minutes. Check its `agent-<id>.meta.json` or stop it. After a resume of the
+  orchestrator session the old subagent cannot be stopped: wait for the time
+  in the deny reason, or ask the human.
+- Rule 10 sees only subagents that already exist. Writers started in the same
+  assistant message are not seen; the orchestrator starts one writer per
+  message.
 
 Deny format: JSON on stdout,
 `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "..."}}`.
+
+## Hook: `orchestrator-context.py`
+
+The orchestrator session loses its settings when the context is compacted, and
+it can forget the chat language over a long run. This hook puts them back.
+Events: `UserPromptSubmit` (every prompt) and `SessionStart` with matcher
+`compact|resume`. Output: `hookSpecificOutput.additionalContext`.
+
+- Active only in a session listed under `Sessions` in an active run file of the
+  work home (`find_home(cwd)`). For a cwd outside any repository it also looks
+  in the homes that the repositories directly below the cwd name in their
+  `CLAUDE.md`; a run there counts only when its project's repository names
+  that home (`repo_names_home`, as rule 5). Other sessions get nothing.
+- Every prompt: at most three lines. The run id and the rule to answer the
+  human in the chat language (repository artifacts keep the project's own
+  language); the settings path with the roles that are off and the custom
+  roles; for a prompt that starts with `/orchestrator:orchestrate` (or the
+  short form `/orchestrate`), the bootstrap line with the session id and the
+  instruction to record it in the `Sessions` line of the run file.
+- Bootstrap: a session that is not yet listed gets only the bootstrap line, and
+  only for that command.
+- After `compact` or `resume`: the full block. It adds the code host, the
+  tracker, the run file path, the task directories of the queue rows whose
+  phase is not `done`, and the instruction to re-read the run file and every
+  `state.md` before the next step. With several active runs of the session the
+  last one by project and run name is used.
+- Invalid settings: the lines say so with the first error and point to
+  `/orchestrator:setup`.
+- Every value from the settings or the run file (run id, chat language,
+  paths, roles, tracker, code host, first error, task directories) is
+  rendered as quoted data: control, format and separator characters and
+  whitespace runs become one space, `"` becomes `'`, and the length is capped
+  (60 characters for names, 200 for paths and the error, 300 for role lists;
+  at most five task directories). A value cannot add a line or an
+  instruction-like block. `validate_settings` also limits `chat_language` to
+  one line of at most 40 letters, spaces, hyphens and parentheses.
+- Fail open: any error, an unreadable event or a missing shared module injects
+  nothing.
 
 ## Agents (frontmatter)
 

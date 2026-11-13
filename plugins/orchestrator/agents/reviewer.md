@@ -46,11 +46,11 @@ not guess.
    repository's conventions, as the skill describes.
 4. Route check, only when the brief gives the settings path: compare the agent
    calls in `state.md` with `settings.json`. Add a finding when a role in
-   `roles_off` was run, a custom role of the phases `research`, `plan` or `implementation` was not run, or a call's model
-   or effort differs from the settings (route-check findings are minor and go
-   to the orchestrator; major only when the wrongly run role changed the diff,
-   and then the finding is on those changes). No disagreement: say it was
-   checked.
+   `roles_off` was run, a custom role of the phases `research`, `plan` or
+   `implementation` was not run, or a call's model or effort differs from the
+   settings. Route-check findings are minor and go to the orchestrator. They
+   are major only when the wrongly run role changed the diff, and then the
+   finding is on those changes. No disagreement: say it was checked.
 5. For a re-review, check only the fixes and the previous findings.
 
 ## Reply

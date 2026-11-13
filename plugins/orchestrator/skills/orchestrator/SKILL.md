@@ -36,7 +36,11 @@ Read the chosen adapters when the first task needs them.
 3. Work home: `$SUBAGENT_ORCHESTRATOR_HOME`, else the line
    `Subagent orchestrator home: <absolute path>` in the project's `CLAUDE.md`,
    else `~/.subagent-orchestrator/`. Expand `~` before you pass
-   any path to a subagent.
+   any path to a subagent. The hooks find the home from your session's
+   working directory. A `CLAUDE.md` home line works when the session started
+   inside that repository (or the repository's own settings name that home);
+   otherwise, and for a run over repositories with different homes, ask the
+   human to set `$SUBAGENT_ORCHESTRATOR_HOME`.
 4. Project: the project key and directory per [task-files.md](references/task-files.md).
    Create `<home>/projects/<project-key>/runs/` and `tasks/` if missing. Run
    files live in `<home>/projects/<project-key>/runs/<run-id>.md`, task
@@ -180,6 +184,8 @@ Hook points:
   without `model`, and without the `Task directory:` line in the brief.
 - Write `settings.json` only with the Write tool and the whole file; the hook
   validates it and refuses subagents and Edit.
+- The hooks add a reminder of the run and the settings to your context. After a
+  compaction or resume re-read the run file and each `state.md`, as it says.
 - Every implementer, tester and writing custom role brief has the standalone
   line `Worktree: <absolute path>`: one writer per worktree. Start one writer
   per message; the hook does not see writers started in the same message.

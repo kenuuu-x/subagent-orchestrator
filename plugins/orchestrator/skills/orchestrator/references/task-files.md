@@ -5,6 +5,8 @@
 - Work home: `$SUBAGENT_ORCHESTRATOR_HOME`, else the line
   `Subagent orchestrator home: <absolute path>` in the project's `CLAUDE.md`,
   else `~/.subagent-orchestrator/`. Expand `~` in every path you pass on.
+  The hooks find the home from the session's working directory; see
+  [setup.md](setup.md), "Work home of the hooks".
 - Project directory: `<home>/projects/<project-key>/`. Everything of one
   repository lives there, so ids of different repositories never collide.
 - Project key: the name of the main checkout directory (the parent of

@@ -174,20 +174,57 @@ denied when:
 - the brief has no `Task directory:` line;
 - the project has no valid settings file;
 - the session is not in the `Sessions` line of an active run file;
-- the role is in `roles_off`.
+- the role is in `roles_off`;
+- the `Task directory:` of the brief is outside the hook's work home (see
+  "Work home of the hooks" below);
+- an implementer or a tester has no standalone `Worktree: <absolute path>`
+  line in its brief, or another unfinished subagent of the session already
+  works in that worktree (one writer per worktree).
 
 A custom role call is denied when its `model` differs from the settings. Its
-`effort` is checked only when the call passes one. Without a
-`Task directory:` line the hook finds the settings from the working
+`effort` is checked only when the call passes one. A writing custom role
+(`writes: true`) follows the same one-writer rule as an implementer: it needs
+the `Worktree:` line, and it is denied while another writer works there.
+Without a `Task directory:` line the hook finds the settings from the working
 directory, in any session in that repository. So a custom role with its own
 `agent_type` is held to the settings' model there, also outside a run. Broken
 settings found this way block a call only when it runs a custom role or comes
 from a session in an active run.
 
+A read-only custom role (`writes: false`) cannot write a file outside the task
+directory of its brief; it puts its notes into `custom-<name>-N.md` there.
+
 Settings writes: only the orchestrator writes this file, with a whole-file
 `Write`. A `Write` that breaks the rules above is denied, and so are partial
-edits and writes from a subagent. Write the instruction files of custom roles
+edits and writes from a subagent. The target is resolved first (relative path,
+`~`, symlinks, case variants of the home), so a link to the file does not
+bypass the check. Write the instruction files of custom roles
 before the settings, because the hook checks that they exist.
 
+Work home of the hooks: the hooks find the home from the session's working
+directory: `$SUBAGENT_ORCHESTRATOR_HOME`, else the home line in the `CLAUDE.md`
+of the repository that holds that directory, else `~/.subagent-orchestrator/`.
+A brief's task directory in another home is accepted only when the repository
+recorded in that project's `settings.json` names that home in its own
+`CLAUDE.md`. The context hook finds the run in the same home, and, for a
+session started in a folder above the repositories, in the homes that the
+repositories directly below it name. So a `CLAUDE.md` home line works for a
+session started inside that repository or in its parent folder. In every other
+case, and for a run over repositories with different homes, set
+`$SUBAGENT_ORCHESTRATOR_HOME`.
+
+One writer per worktree: the hook sees only subagents that already exist.
+Writers started in the same assistant message are not seen, so start one
+writer per message. After a resume of the orchestrator session the old
+subagents are gone but still count for 60 minutes after their last activity;
+the deny reason gives the time. Wait until then, or ask the human.
+
 The model a subagent really runs on is not visible: the reviewer's route check
-covers it.
+covers it. Writes to the settings file through a shell command, and shell writes
+of a read-only custom role, are not checked.
+
+A second hook adds the project settings to the context of the orchestrator
+session: after compaction or resume, and a short reminder on every prompt (run,
+chat language, roles). It acts only in a session listed in an active run file.
+It shows every value from the settings and the run file as quoted data on one
+line, cut to a fixed length.

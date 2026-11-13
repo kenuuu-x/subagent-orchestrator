@@ -27,7 +27,7 @@ Restart Claude Code (or run `/reload-plugins`) after installing.
   local merge when you ask for it.
 - Optional: an MCP server for your tracker (Jira, Linear, Yandex Tracker or
   another), added to Claude Code by you. See "Setup and integrations".
-- Python 3 for the plugin's safety hook.
+- Python 3 for the plugin's hooks.
 
 ## Quick start
 
@@ -172,10 +172,31 @@ honest:
   blocked only when they run a custom role or come from a session listed in
   an active run. Other sessions in the repository are not affected.
 - Only the orchestrator writes `settings.json`, with a whole-file `Write`; the
-  hook validates the content and refuses subagents and partial edits.
+  hook validates the content and refuses subagents and partial edits. The
+  target path is resolved first (relative path, `~`, symlinks, case variants of
+  the work home), so a link to the file does not get around the check.
+- One writer per worktree: the brief of every implementer, tester and writing
+  custom role has the standalone line `Worktree: <absolute path>`, and a second
+  writer in the same worktree is refused while the first is unfinished. A
+  subagent idle for over 60 minutes stops counting.
+- A read-only custom role (`writes: false`) writes only inside its task
+  directory.
+- The `Task directory:` of a brief must lie in the hooks' work home, found
+  from the session's working directory, or in a home that the project's own
+  repository names (see "Customising"); a brief pointing into another home is
+  refused.
 
-The hook cannot see the model a subagent really runs on (the reviewer's route
-check against `state.md` covers that) or a settings file changed through a
+A second hook keeps the orchestrator oriented. In a session listed in an active
+run file it adds a short reminder to every prompt (run, chat language, roles
+that are off, custom roles). After a context compaction or a resume it adds the
+full picture: code host, tracker, run file, active tasks, and the instruction to
+re-read the run file and each `state.md`. Values from the settings and the run
+file appear as quoted one-line data with a length cap. Other sessions are not
+touched, and any error in the hook adds nothing.
+
+The hooks cannot see the model a subagent really runs on (the reviewer's route
+check against `state.md` covers that). They also cannot see a settings file
+changed through a shell command, or a read-only custom role writing through a
 shell command.
 
 ## Files it creates
@@ -210,7 +231,11 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
 - Set `SUBAGENT_ORCHESTRATOR_HOME` to move the task documents, or put the
   line `Subagent orchestrator home: <absolute path>` in your project's
   `CLAUDE.md`. The environment variable wins; without either the home is
-  `~/.subagent-orchestrator/`.
+  `~/.subagent-orchestrator/`. The hooks find the home from the session's
+  working directory, so the `CLAUDE.md` line works for a session started in
+  that repository (or in the folder above it). For a session started
+  elsewhere, or a run over repositories with different homes, use the
+  environment variable.
 - Run `/orchestrator:setup` to change the tracker, the code host, the roles or
   the chat language.
 - Put project rules in `AGENTS.md` or `CLAUDE.md` in your repository: build,
@@ -223,6 +248,13 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
   subscription.
 - The session cannot verify which model a subagent actually ran on; the
   orchestrator passes the model explicitly and records it in `state.md`.
+- After a crashed subagent, the one-writer lock of its worktree can hold for
+  up to 60 minutes; stop the subagent or wait. After a resume of the
+  orchestrator session the old subagent cannot be stopped: wait until the
+  time the refusal names.
+- The one-writer check sees only subagents that already run: two writers
+  started in the same message are not caught. The orchestrator starts one
+  writer per message.
 - Pull requests: GitHub and GitLab. Without a remote, or without a login for
   the host's CLI, the flow is local: a local commit, your remarks in chat, and a
   local merge when you ask. A stacked task branches from its predecessor only
@@ -234,7 +266,7 @@ Worktrees go next to your repository: `<repo>-worktrees/<task-id>/`.
 ./scripts/validate.sh
 ```
 
-runs the structural contract and the hook tests. The contract checks:
+runs the structural contract and the tests of both hooks. The contract checks:
 
 - the adapter files and their fixed headings;
 - the settings markers;
