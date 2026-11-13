@@ -15,9 +15,10 @@ Fails when:
 - the implementer description does not name all six pass goals;
 - a tracker or code-host adapter is missing or lacks one of its fixed headings;
 - an integration name (a code host or tracker product) appears outside the
-  adapters, the setup reference and the README;
+  adapters, the setup reference, the settings hook module and the README;
 - a settings marker (path, language rule, custom-roles rule) is missing from
-  the spec, the skill, the setup reference or the README.
+  the spec, the skill, the setup reference or the README;
+- the settings example in the setup reference fails `validate_settings()`.
 """
 
 import json
@@ -34,12 +35,14 @@ FORBIDDEN = re.compile(
     re.IGNORECASE,
 )
 # Integration names are product features, not company words: the adapters, the
-# setup reference (the settings schema lists them) and the README may name them.
+# setup reference and the settings hook module (both hold the schema enums) and
+# the README may name them.
 # Any other file (the generic flow text) may not.
 INTEGRATION = re.compile(r"gitlab|\bglab\b|yandex[ -]tracker", re.IGNORECASE)
 REFS = PLUGIN / "skills" / "orchestrator" / "references"
 ADAPTERS = REFS / "adapters"
-INTEGRATION_ALLOWED = {ROOT / "README.md", REFS / "setup.md"}
+HOOKS = PLUGIN / "hooks"
+INTEGRATION_ALLOWED = {ROOT / "README.md", REFS / "setup.md", HOOKS / "orchestrator_settings.py"}
 # The spec and this test list the forbidden words on purpose.
 FORBIDDEN_SKIP = {ROOT / "docs" / "spec.md", Path(__file__).resolve()}
 
@@ -266,6 +269,28 @@ def check_markers():
         fail(template, "state.md uses 'Complexity:', never 'Complexity class:'")
 
 
+def check_settings_example():
+    """The JSON example of the setup reference passes the hook's schema check
+    (not the existence check: the example's instruction file does not exist)."""
+    sys.path.insert(0, str(HOOKS))
+    import orchestrator_settings
+
+    path = REFS / "setup.md"
+    text = path.read_text(encoding="utf-8")
+    section = text.find("## Schema, version 1")
+    match = re.search(r"```json\n(.*?)\n```", text[section:], re.DOTALL) if section != -1 else None
+    if not match:
+        fail(path, "settings example (```json block under '## Schema, version 1') missing")
+    else:
+        try:
+            data = json.loads(match.group(1))
+        except ValueError as error:
+            fail(path, f"settings example is not valid JSON: {error}")
+        else:
+            for error in orchestrator_settings.validate_settings(data):
+                fail(path, f"settings example: {error}")
+
+
 def main():
     check_forbidden()
     check_stale_paths()
@@ -276,6 +301,7 @@ def main():
     check_manifests()
     check_role_tables()
     check_markers()
+    check_settings_example()
     if errors:
         print("\n".join(errors))
         print(f"\n{len(errors)} contract error(s)")
